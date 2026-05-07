@@ -256,7 +256,7 @@ let busy = false; // while AI thinks or animation plays
 // =======================================================
 // THREE / MINDAR
 // =======================================================
-let mindarThree, scene, camera, renderer, anchor, boardGroup;
+let mindarThree, scene, camera, renderer, anchor, boardGroup, innerBoard;
 const SQ = 0.11;          // square size (in world units, marker = 1 wide)
 const BOARD_OFFSET = -SQ * 4 + SQ / 2; // a1 corner
 
@@ -319,8 +319,18 @@ async function startAR(){
   dir.position.set(0.5, 1, 0.5);
   scene.add(dir);
 
+  // MindAR's anchor space: marker is the XY plane, +Z points OUT of the marker (toward camera).
+  // Our board is built in the XZ plane with Y as "up". Rotate -90° on X so the board's
+  // Y-up axis aligns with the marker's Z-out — the board lies flat on the marker
+  // and pieces stand up out of it toward the camera.
   boardGroup = new THREE.Group();
+  boardGroup.rotation.x = -Math.PI / 2;
   anchor.group.add(boardGroup);
+
+  // Inner group lives inside boardGroup. We add all squares and pieces here.
+  // Player-side flip (180° on Y) happens here so it stays independent of the marker rotation.
+  innerBoard = new THREE.Group();
+  boardGroup.add(innerBoard);
 
   buildBoard();
   rebuildPieces();
@@ -352,7 +362,7 @@ function buildBoard(){
   const baseMat = new THREE.MeshStandardMaterial({ color: 0x2a1f17, roughness: 0.7 });
   const base = new THREE.Mesh(baseGeo, baseMat);
   base.position.y = -0.005;
-  boardGroup.add(base);
+  innerBoard.add(base);
 
   // Squares
   for (let r = 0; r < 8; r++){
@@ -366,7 +376,7 @@ function buildBoard(){
       mesh.position.set(BOARD_OFFSET + f * SQ, 0.001, BOARD_OFFSET + r * SQ);
       const square = squareName(f, r);
       mesh.userData.square = square;
-      boardGroup.add(mesh);
+      innerBoard.add(mesh);
       squareMeshes[square] = { mesh, baseColor: color };
 
       // Highlight overlay (transparent, hidden by default)
@@ -375,7 +385,7 @@ function buildBoard(){
       const hl = new THREE.Mesh(hlGeo, hlMat);
       hl.rotation.x = -Math.PI / 2;
       hl.position.set(BOARD_OFFSET + f * SQ, 0.003, BOARD_OFFSET + r * SQ);
-      boardGroup.add(hl);
+      innerBoard.add(hl);
       highlightMeshes[square] = hl;
     }
   }
@@ -490,7 +500,7 @@ function makePieceMesh(type, color){
 
 function rebuildPieces(){
   // Remove existing
-  Object.values(pieceMeshes).forEach(m => boardGroup.remove(m));
+  Object.values(pieceMeshes).forEach(m => innerBoard.remove(m));
   for (const k in pieceMeshes) delete pieceMeshes[k];
 
   const board = chess.board(); // 8x8 array, index 0 = rank 8
@@ -502,8 +512,9 @@ function rebuildPieces(){
       placePiece(sq, cell.type, cell.color);
     }
   }
-  // Flip board for black player
-  boardGroup.rotation.y = playerColor === 'b' ? Math.PI : 0;
+  // Flip board for black player — applied to inner group so it stays independent
+  // of the marker-flatten rotation on boardGroup.
+  innerBoard.rotation.y = playerColor === 'b' ? Math.PI : 0;
 }
 
 function placePiece(sq, type, color){
@@ -511,7 +522,7 @@ function placePiece(sq, type, color){
   const [f, r] = squareToFR(sq);
   mesh.position.set(BOARD_OFFSET + f * SQ, 0.005, BOARD_OFFSET + r * SQ);
   mesh.userData.square = sq;
-  boardGroup.add(mesh);
+  innerBoard.add(mesh);
   pieceMeshes[sq] = mesh;
 }
 
@@ -567,7 +578,7 @@ function onPointerDown(ev){
   pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
 
   raycaster.setFromCamera(pointer, camera);
-  const hits = raycaster.intersectObjects(boardGroup.children, true);
+  const hits = raycaster.intersectObjects(innerBoard.children, true);
   if (!hits.length) return;
 
   // Walk up to find userData.square
@@ -639,7 +650,7 @@ function animateMove(from, to, moveObj){
         })()
       : to;
     const captured = pieceMeshes[target];
-    if (captured) boardGroup.remove(captured);
+    if (captured) innerBoard.remove(captured);
     delete pieceMeshes[target];
   }
 
@@ -668,7 +679,7 @@ function animateMove(from, to, moveObj){
       }
       // Promotion: rebuild that square
       if (moveObj.flags.includes('p') || moveObj.promotion){
-        boardGroup.remove(mesh);
+        innerBoard.remove(mesh);
         delete pieceMeshes[to];
         const newPiece = chess.get(to);
         placePiece(to, newPiece.type, newPiece.color);
