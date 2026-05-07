@@ -336,7 +336,11 @@ async function startAR(){
 
   raycaster = new THREE.Raycaster();
   pointer = new THREE.Vector2();
-  renderer.domElement.addEventListener('pointerdown', onPointerDown, { passive: false });
+  // iOS Safari: pointerdown alone is unreliable on the WebGL canvas. Listen on
+  // document for touchstart + click, both fire reliably. preventDefault stops
+  // the gesture from being eaten by a scroll/zoom.
+  document.addEventListener('touchstart', onTap, { passive: false });
+  document.addEventListener('click', onTap);
 
   anchor.onTargetFound = () => scanPrompt.classList.add('hidden');
   anchor.onTargetLost  = () => scanPrompt.classList.remove('hidden');
@@ -511,9 +515,10 @@ function rebuildPieces(){
       placePiece(sq, cell.type, cell.color);
     }
   }
-  // Flip board for black player — applied to inner group so it stays independent
-  // of the marker-flatten rotation on boardGroup.
-  innerBoard.rotation.y = playerColor === 'b' ? Math.PI : 0;
+  // Flip board for player perspective. With the +90° X rotation on the parent group,
+  // the natural orientation puts black at the bottom of the camera view, so White
+  // needs the 180° flip to put their pieces in front of them.
+  innerBoard.rotation.y = playerColor === 'w' ? Math.PI : 0;
 }
 
 function placePiece(sq, type, color){
@@ -567,14 +572,36 @@ function flashIllegal(square){
 // =======================================================
 // INPUT
 // =======================================================
-function onPointerDown(ev){
+let lastTapTime = 0;
+function onTap(ev){
+  // De-duplicate: touchstart on iOS also fires a synthetic click ~300ms later.
+  const now = performance.now();
+  if (now - lastTapTime < 400) return;
+  lastTapTime = now;
+
   if (busy) return;
   if (chess.turn() !== playerColor) return;
   if (chess.isGameOver()) return;
 
-  const rect = renderer.domElement.getBoundingClientRect();
-  pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
-  pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+  // Get x,y from either touch or mouse event
+  let clientX, clientY;
+  if (ev.touches && ev.touches.length > 0){
+    clientX = ev.touches[0].clientX;
+    clientY = ev.touches[0].clientY;
+  } else if (ev.changedTouches && ev.changedTouches.length > 0){
+    clientX = ev.changedTouches[0].clientX;
+    clientY = ev.changedTouches[0].clientY;
+  } else {
+    clientX = ev.clientX;
+    clientY = ev.clientY;
+  }
+
+  // Don't react to taps on HUD buttons etc.
+  if (ev.target && ev.target.closest && ev.target.closest('#hud, #gameover, #splash, #marker-modal')) return;
+
+  // Use canvas size (full window)
+  pointer.x = (clientX / window.innerWidth) * 2 - 1;
+  pointer.y = -(clientY / window.innerHeight) * 2 + 1;
 
   raycaster.setFromCamera(pointer, camera);
   const hits = raycaster.intersectObjects(innerBoard.children, true);
