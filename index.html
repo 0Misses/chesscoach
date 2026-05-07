@@ -1,0 +1,854 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>AR Chess — 1200 ELO</title>
+<style>
+  :root{
+    --bg:#0a0a0f;
+    --ink:#f5f1e8;
+    --accent:#d4a574;
+    --danger:#e8504a;
+    --legal:#5dd39e;
+    --selected:#f9d949;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+  html,body{
+    height:100%;width:100%;overflow:hidden;background:var(--bg);
+    color:var(--ink);
+    font-family:'Cormorant Garamond', Georgia, serif;
+    user-select:none;-webkit-user-select:none;
+  }
+
+  /* ---------- Splash / setup ---------- */
+  #splash{
+    position:fixed;inset:0;z-index:100;
+    background:radial-gradient(ellipse at top,#1a1620 0%,#0a0a0f 70%);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    padding:24px;text-align:center;gap:18px;
+    transition:opacity .6s ease;
+  }
+  #splash h1{
+    font-family:'Playfair Display', Georgia, serif;
+    font-size:clamp(36px,9vw,64px);
+    font-weight:900;letter-spacing:-.02em;line-height:.95;
+  }
+  #splash h1 .amp{color:var(--accent);font-style:italic;font-weight:400;}
+  #splash p{
+    font-size:clamp(14px,3.6vw,18px);
+    max-width:32ch;opacity:.78;line-height:1.5;
+    font-family:'Inter','Helvetica Neue',sans-serif;
+    font-weight:300;
+  }
+  .colorpick{display:flex;gap:14px;margin-top:8px;}
+  .colorpick button{
+    width:96px;height:96px;border-radius:50%;border:2px solid #2a2530;
+    cursor:pointer;font-family:inherit;font-size:18px;font-weight:700;
+    transition:transform .2s ease, border-color .2s ease, box-shadow .2s ease;
+    display:flex;align-items:center;justify-content:center;
+    color:var(--ink);
+  }
+  .colorpick button.white{background:linear-gradient(145deg,#f5f1e8,#cfc8b8);color:#1a1620;}
+  .colorpick button.black{background:linear-gradient(145deg,#3a3540,#1a1620);}
+  .colorpick button:hover,.colorpick button:active{
+    transform:translateY(-3px);border-color:var(--accent);
+    box-shadow:0 10px 30px rgba(212,165,116,.25);
+  }
+  .hint{
+    margin-top:24px;font-size:12px;opacity:.55;letter-spacing:.18em;
+    text-transform:uppercase;font-family:'Inter',sans-serif;
+  }
+  #marker-link{
+    margin-top:6px;color:var(--accent);text-decoration:underline;
+    font-size:13px;cursor:pointer;font-family:'Inter',sans-serif;
+  }
+
+  /* ---------- AR scene ---------- */
+  #ar-container{position:fixed;inset:0;z-index:1;}
+  #ar-container video,#ar-container canvas{
+    position:absolute;top:0;left:0;width:100%;height:100%;
+  }
+
+  /* ---------- HUD ---------- */
+  #hud{
+    position:fixed;top:0;left:0;right:0;z-index:50;
+    padding:14px 16px;pointer-events:none;
+    display:flex;justify-content:space-between;align-items:flex-start;
+    font-family:'Inter',sans-serif;
+  }
+  .hud-card{
+    background:rgba(10,10,15,.72);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(212,165,116,.25);
+    border-radius:14px;padding:10px 14px;
+    pointer-events:auto;
+  }
+  #status{font-size:13px;font-weight:500;letter-spacing:.04em;}
+  #status .turn{color:var(--accent);font-weight:700;}
+  #scan-prompt{
+    position:fixed;bottom:80px;left:50%;transform:translateX(-50%);
+    background:rgba(10,10,15,.78);backdrop-filter:blur(14px);
+    border:1px solid rgba(212,165,116,.3);border-radius:999px;
+    padding:12px 22px;font-family:'Inter',sans-serif;font-size:13px;
+    letter-spacing:.06em;z-index:50;
+    transition:opacity .4s ease;
+  }
+  #scan-prompt.hidden{opacity:0;pointer-events:none;}
+  #reset-btn{
+    background:none;border:none;color:var(--ink);
+    font-family:inherit;font-size:13px;cursor:pointer;
+    padding:6px 10px;
+  }
+  #reset-btn:hover{color:var(--accent);}
+
+  /* ---------- Game over ---------- */
+  #gameover{
+    position:fixed;inset:0;z-index:80;
+    background:rgba(10,10,15,.88);backdrop-filter:blur(20px);
+    display:none;flex-direction:column;align-items:center;justify-content:center;
+    text-align:center;padding:24px;gap:18px;
+  }
+  #gameover.show{display:flex;}
+  #gameover h2{
+    font-family:'Playfair Display',serif;font-size:44px;
+  }
+  #gameover button{
+    background:var(--accent);color:#1a1620;border:none;
+    padding:14px 28px;border-radius:999px;font-family:inherit;
+    font-size:16px;font-weight:700;cursor:pointer;letter-spacing:.04em;
+  }
+
+  /* ---------- Marker preview modal ---------- */
+  #marker-modal{
+    position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.92);
+    display:none;flex-direction:column;align-items:center;justify-content:center;
+    padding:24px;gap:16px;
+  }
+  #marker-modal.show{display:flex;}
+  #marker-modal img{
+    max-width:min(90vw,500px);max-height:70vh;
+    border:8px solid white;background:white;
+  }
+  #marker-modal button{
+    background:var(--accent);border:none;padding:10px 22px;
+    border-radius:999px;font-family:inherit;cursor:pointer;font-weight:700;
+  }
+  #marker-modal p{font-size:13px;opacity:.7;text-align:center;max-width:36ch;font-family:'Inter',sans-serif;}
+
+  /* Loading */
+  .spinner{
+    width:32px;height:32px;border:3px solid rgba(212,165,116,.2);
+    border-top-color:var(--accent);border-radius:50%;
+    animation:spin .9s linear infinite;
+  }
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  /* Flash overlay (for illegal moves) */
+  #flash{
+    position:fixed;inset:0;z-index:40;pointer-events:none;
+    background:radial-gradient(ellipse at center, rgba(232,80,74,.35) 0%, transparent 60%);
+    opacity:0;transition:opacity .15s ease;
+  }
+  #flash.active{opacity:1;animation:flashFade .8s ease forwards;}
+  @keyframes flashFade{
+    0%{opacity:0;}15%{opacity:1;}100%{opacity:0;}
+  }
+</style>
+
+<!-- Fonts -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;700;900&family=Cormorant+Garamond:wght@400;700&family=Inter:wght@300;500;700&display=swap" rel="stylesheet">
+
+<!-- Import map for Three + MindAR -->
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+    "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js",
+    "chess.js": "https://cdn.jsdelivr.net/npm/chess.js@1.0.0-beta.6/+esm"
+  }
+}
+</script>
+</head>
+<body>
+
+<!-- Splash -->
+<div id="splash">
+  <h1>A<span class="amp">R</span> Chess</h1>
+  <p>Play augmented-reality chess against a 1200-rated opponent. Choose your side.</p>
+  <div class="colorpick">
+    <button class="white" data-color="w">White</button>
+    <button class="black" data-color="b">Black</button>
+  </div>
+  <div class="hint">Camera + Marker Required</div>
+  <a id="marker-link">View / print AR marker →</a>
+</div>
+
+<!-- Marker preview -->
+<div id="marker-modal">
+  <p>Print this image, or display it on another screen. Point your camera at it once the game starts.</p>
+  <img id="marker-img" alt="AR marker" />
+  <button id="marker-close">Got it</button>
+</div>
+
+<!-- AR -->
+<div id="ar-container"></div>
+
+<!-- HUD -->
+<div id="hud" style="display:none;">
+  <div class="hud-card" id="status">Loading…</div>
+  <div class="hud-card"><button id="reset-btn">↻ Reset</button></div>
+</div>
+<div id="scan-prompt" class="hidden">Point camera at marker</div>
+
+<!-- Flash overlay -->
+<div id="flash"></div>
+
+<!-- Game over -->
+<div id="gameover">
+  <h2 id="gameover-text">Checkmate</h2>
+  <p id="gameover-sub" style="opacity:.7;font-family:'Inter',sans-serif;font-size:14px;"></p>
+  <button id="gameover-btn">Play again</button>
+</div>
+
+<script type="module">
+import * as THREE from 'three';
+import { MindARThree } from 'mindar-image-three';
+import { Chess } from 'chess.js';
+
+// =======================================================
+// AR MARKER — using MindAR's example "card" target
+// We host the marker image (.mind file) from MindAR's CDN
+// =======================================================
+const MIND_TARGET_URL = 'https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.mind';
+const MARKER_PREVIEW_URL = 'https://cdn.jsdelivr.net/gh/hiukim/mind-ar-js@1.2.5/examples/image-tracking/assets/card-example/card.png';
+
+document.getElementById('marker-img').src = MARKER_PREVIEW_URL;
+
+// =======================================================
+// ELEMENTS
+// =======================================================
+const splash = document.getElementById('splash');
+const hud = document.getElementById('hud');
+const statusEl = document.getElementById('status');
+const scanPrompt = document.getElementById('scan-prompt');
+const flash = document.getElementById('flash');
+const gameoverEl = document.getElementById('gameover');
+const gameoverText = document.getElementById('gameover-text');
+const gameoverSub = document.getElementById('gameover-sub');
+
+document.getElementById('marker-link').onclick = () =>
+  document.getElementById('marker-modal').classList.add('show');
+document.getElementById('marker-close').onclick = () =>
+  document.getElementById('marker-modal').classList.remove('show');
+
+// =======================================================
+// GAME STATE
+// =======================================================
+let chess = new Chess();
+let playerColor = 'w';
+let selectedSquare = null;
+let legalDestinations = []; // squares player can move selected piece to
+let busy = false; // while AI thinks or animation plays
+
+// =======================================================
+// THREE / MINDAR
+// =======================================================
+let mindarThree, scene, camera, renderer, anchor, boardGroup;
+const SQ = 0.11;          // square size (in world units, marker = 1 wide)
+const BOARD_OFFSET = -SQ * 4 + SQ / 2; // a1 corner
+
+const pieceMeshes = {}; // square -> mesh
+const squareMeshes = {}; // square -> { mesh, baseColor }
+const highlightMeshes = {}; // square -> overlay mesh
+let raycaster, pointer;
+
+// =======================================================
+// COLOR PICKER → start
+// =======================================================
+document.querySelectorAll('.colorpick button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    playerColor = btn.dataset.color;
+    splash.style.opacity = '0';
+    setTimeout(() => { splash.style.display = 'none'; startAR(); }, 600);
+  });
+});
+
+document.getElementById('reset-btn').onclick = () => resetGame();
+document.getElementById('gameover-btn').onclick = () => {
+  gameoverEl.classList.remove('show');
+  resetGame();
+};
+
+function resetGame(){
+  chess = new Chess();
+  selectedSquare = null;
+  legalDestinations = [];
+  busy = false;
+  rebuildPieces();
+  clearHighlights();
+  updateStatus();
+  if (chess.turn() !== playerColor) setTimeout(aiMove, 600);
+}
+
+// =======================================================
+// START AR
+// =======================================================
+async function startAR(){
+  hud.style.display = 'flex';
+  scanPrompt.classList.remove('hidden');
+  statusEl.innerHTML = '<span class="spinner" style="display:inline-block;vertical-align:middle;width:14px;height:14px;border-width:2px;"></span> &nbsp;Initializing camera…';
+
+  mindarThree = new MindARThree({
+    container: document.getElementById('ar-container'),
+    imageTargetSrc: MIND_TARGET_URL,
+    uiLoading: 'no',
+    uiScanning: 'no',
+    uiError: 'no'
+  });
+
+  ({ scene, camera, renderer } = mindarThree);
+  anchor = mindarThree.addAnchor(0);
+
+  // Lighting
+  const amb = new THREE.AmbientLight(0xffffff, 0.7);
+  scene.add(amb);
+  const dir = new THREE.DirectionalLight(0xffffff, 0.9);
+  dir.position.set(0.5, 1, 0.5);
+  scene.add(dir);
+
+  boardGroup = new THREE.Group();
+  anchor.group.add(boardGroup);
+
+  buildBoard();
+  rebuildPieces();
+
+  raycaster = new THREE.Raycaster();
+  pointer = new THREE.Vector2();
+  renderer.domElement.addEventListener('pointerdown', onPointerDown, { passive: false });
+
+  anchor.onTargetFound = () => scanPrompt.classList.add('hidden');
+  anchor.onTargetLost  = () => scanPrompt.classList.remove('hidden');
+
+  try {
+    await mindarThree.start();
+    updateStatus();
+    renderer.setAnimationLoop(() => renderer.render(scene, camera));
+    if (chess.turn() !== playerColor) setTimeout(aiMove, 800);
+  } catch (err) {
+    statusEl.innerHTML = '⚠ Camera blocked. Allow camera access and reload.';
+    console.error(err);
+  }
+}
+
+// =======================================================
+// BUILD BOARD
+// =======================================================
+function buildBoard(){
+  // Base
+  const baseGeo = new THREE.BoxGeometry(SQ * 8 + 0.02, 0.01, SQ * 8 + 0.02);
+  const baseMat = new THREE.MeshStandardMaterial({ color: 0x2a1f17, roughness: 0.7 });
+  const base = new THREE.Mesh(baseGeo, baseMat);
+  base.position.y = -0.005;
+  boardGroup.add(base);
+
+  // Squares
+  for (let r = 0; r < 8; r++){
+    for (let f = 0; f < 8; f++){
+      const isLight = (r + f) % 2 === 0;
+      const color = isLight ? 0xe8d4a8 : 0x6b4423;
+      const geo = new THREE.PlaneGeometry(SQ, SQ);
+      const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5 });
+      const mesh = new THREE.Mesh(geo, mat);
+      mesh.rotation.x = -Math.PI / 2;
+      mesh.position.set(BOARD_OFFSET + f * SQ, 0.001, BOARD_OFFSET + r * SQ);
+      const square = squareName(f, r);
+      mesh.userData.square = square;
+      boardGroup.add(mesh);
+      squareMeshes[square] = { mesh, baseColor: color };
+
+      // Highlight overlay (transparent, hidden by default)
+      const hlGeo = new THREE.PlaneGeometry(SQ * 0.95, SQ * 0.95);
+      const hlMat = new THREE.MeshBasicMaterial({ color: 0x5dd39e, transparent: true, opacity: 0, depthWrite: false });
+      const hl = new THREE.Mesh(hlGeo, hlMat);
+      hl.rotation.x = -Math.PI / 2;
+      hl.position.set(BOARD_OFFSET + f * SQ, 0.003, BOARD_OFFSET + r * SQ);
+      boardGroup.add(hl);
+      highlightMeshes[square] = hl;
+    }
+  }
+}
+
+function squareName(file, rank){
+  // file 0..7 = a..h ; rank 0..7 = 1..8 (from white side)
+  return String.fromCharCode(97 + file) + (rank + 1);
+}
+function squareToFR(sq){
+  return [ sq.charCodeAt(0) - 97, parseInt(sq[1], 10) - 1 ];
+}
+
+// =======================================================
+// PIECES — built from primitives so no external GLTF needed
+// =======================================================
+function makePieceMesh(type, color){
+  const g = new THREE.Group();
+  const matBody = new THREE.MeshStandardMaterial({
+    color: color === 'w' ? 0xf5f1e8 : 0x1a1620,
+    roughness: 0.35,
+    metalness: 0.15
+  });
+  const matAcc = new THREE.MeshStandardMaterial({
+    color: color === 'w' ? 0xd4a574 : 0x4a3a2a,
+    roughness: 0.4
+  });
+
+  const baseH = 0.012;
+  const base = new THREE.Mesh(
+    new THREE.CylinderGeometry(SQ * 0.36, SQ * 0.4, baseH, 24),
+    matBody
+  );
+  base.position.y = baseH / 2;
+  g.add(base);
+
+  let body, top;
+  switch (type){
+    case 'p': // pawn
+      body = new THREE.Mesh(
+        new THREE.CylinderGeometry(SQ * 0.14, SQ * 0.22, 0.035, 16),
+        matBody);
+      body.position.y = baseH + 0.018;
+      top = new THREE.Mesh(new THREE.SphereGeometry(SQ * 0.18, 18, 14), matBody);
+      top.position.y = baseH + 0.045;
+      g.add(body, top);
+      break;
+    case 'r': // rook
+      body = new THREE.Mesh(
+        new THREE.CylinderGeometry(SQ * 0.22, SQ * 0.26, 0.05, 16),
+        matBody);
+      body.position.y = baseH + 0.025;
+      top = new THREE.Mesh(
+        new THREE.CylinderGeometry(SQ * 0.26, SQ * 0.26, 0.012, 8),
+        matAcc);
+      top.position.y = baseH + 0.056;
+      g.add(body, top);
+      break;
+    case 'n': // knight (stylized)
+      body = new THREE.Mesh(
+        new THREE.CylinderGeometry(SQ * 0.18, SQ * 0.24, 0.04, 16),
+        matBody);
+      body.position.y = baseH + 0.02;
+      top = new THREE.Mesh(new THREE.ConeGeometry(SQ * 0.22, 0.05, 16), matBody);
+      top.position.y = baseH + 0.065;
+      top.rotation.z = -0.35;
+      top.position.x = SQ * 0.04;
+      g.add(body, top);
+      break;
+    case 'b': // bishop
+      body = new THREE.Mesh(
+        new THREE.CylinderGeometry(SQ * 0.16, SQ * 0.24, 0.045, 16),
+        matBody);
+      body.position.y = baseH + 0.022;
+      top = new THREE.Mesh(new THREE.ConeGeometry(SQ * 0.18, 0.06, 18), matBody);
+      top.position.y = baseH + 0.075;
+      const tip = new THREE.Mesh(new THREE.SphereGeometry(SQ * 0.05, 10, 8), matAcc);
+      tip.position.y = baseH + 0.115;
+      g.add(body, top, tip);
+      break;
+    case 'q': // queen
+      body = new THREE.Mesh(
+        new THREE.CylinderGeometry(SQ * 0.2, SQ * 0.28, 0.06, 16),
+        matBody);
+      body.position.y = baseH + 0.03;
+      top = new THREE.Mesh(new THREE.ConeGeometry(SQ * 0.22, 0.05, 18), matBody);
+      top.position.y = baseH + 0.085;
+      const crown = new THREE.Mesh(new THREE.SphereGeometry(SQ * 0.08, 12, 10), matAcc);
+      crown.position.y = baseH + 0.125;
+      g.add(body, top, crown);
+      break;
+    case 'k': // king
+      body = new THREE.Mesh(
+        new THREE.CylinderGeometry(SQ * 0.22, SQ * 0.3, 0.07, 16),
+        matBody);
+      body.position.y = baseH + 0.035;
+      top = new THREE.Mesh(new THREE.ConeGeometry(SQ * 0.24, 0.05, 18), matBody);
+      top.position.y = baseH + 0.095;
+      const cross1 = new THREE.Mesh(
+        new THREE.BoxGeometry(SQ * 0.06, 0.04, SQ * 0.06), matAcc);
+      cross1.position.y = baseH + 0.14;
+      const cross2 = new THREE.Mesh(
+        new THREE.BoxGeometry(SQ * 0.18, 0.012, SQ * 0.06), matAcc);
+      cross2.position.y = baseH + 0.135;
+      g.add(body, top, cross1, cross2);
+      break;
+  }
+  g.userData.type = type;
+  g.userData.color = color;
+  return g;
+}
+
+function rebuildPieces(){
+  // Remove existing
+  Object.values(pieceMeshes).forEach(m => boardGroup.remove(m));
+  for (const k in pieceMeshes) delete pieceMeshes[k];
+
+  const board = chess.board(); // 8x8 array, index 0 = rank 8
+  for (let rIdx = 0; rIdx < 8; rIdx++){
+    for (let fIdx = 0; fIdx < 8; fIdx++){
+      const cell = board[rIdx][fIdx];
+      if (!cell) continue;
+      const sq = String.fromCharCode(97 + fIdx) + (8 - rIdx);
+      placePiece(sq, cell.type, cell.color);
+    }
+  }
+  // Flip board for black player
+  boardGroup.rotation.y = playerColor === 'b' ? Math.PI : 0;
+}
+
+function placePiece(sq, type, color){
+  const mesh = makePieceMesh(type, color);
+  const [f, r] = squareToFR(sq);
+  mesh.position.set(BOARD_OFFSET + f * SQ, 0.005, BOARD_OFFSET + r * SQ);
+  mesh.userData.square = sq;
+  boardGroup.add(mesh);
+  pieceMeshes[sq] = mesh;
+}
+
+// =======================================================
+// HIGHLIGHTS
+// =======================================================
+function clearHighlights(){
+  for (const sq in highlightMeshes){
+    highlightMeshes[sq].material.opacity = 0;
+  }
+}
+function showLegalMoves(from){
+  clearHighlights();
+  const moves = chess.moves({ square: from, verbose: true });
+  legalDestinations = moves.map(m => m.to);
+  // selected square — yellow
+  highlightMeshes[from].material.color.set(0xf9d949);
+  highlightMeshes[from].material.opacity = 0.55;
+  // legal destinations — green
+  legalDestinations.forEach(to => {
+    highlightMeshes[to].material.color.set(0x5dd39e);
+    highlightMeshes[to].material.opacity = 0.5;
+  });
+}
+function flashIllegal(square){
+  flash.classList.remove('active');
+  void flash.offsetWidth; // restart animation
+  flash.classList.add('active');
+  if (square && highlightMeshes[square]){
+    const hl = highlightMeshes[square];
+    hl.material.color.set(0xe8504a);
+    hl.material.opacity = 0.7;
+    const start = performance.now();
+    const fade = () => {
+      const t = (performance.now() - start) / 700;
+      hl.material.opacity = Math.max(0, 0.7 * (1 - t));
+      if (t < 1) requestAnimationFrame(fade);
+    };
+    fade();
+  }
+}
+
+// =======================================================
+// INPUT
+// =======================================================
+function onPointerDown(ev){
+  if (busy) return;
+  if (chess.turn() !== playerColor) return;
+  if (chess.isGameOver()) return;
+
+  const rect = renderer.domElement.getBoundingClientRect();
+  pointer.x = ((ev.clientX - rect.left) / rect.width) * 2 - 1;
+  pointer.y = -((ev.clientY - rect.top) / rect.height) * 2 + 1;
+
+  raycaster.setFromCamera(pointer, camera);
+  const hits = raycaster.intersectObjects(boardGroup.children, true);
+  if (!hits.length) return;
+
+  // Walk up to find userData.square
+  let sq = null;
+  for (const h of hits){
+    let o = h.object;
+    while (o && !o.userData?.square) o = o.parent;
+    if (o && o.userData?.square){ sq = o.userData.square; break; }
+  }
+  if (!sq) return;
+
+  handleSquareTap(sq);
+}
+
+function handleSquareTap(sq){
+  const piece = chess.get(sq);
+
+  if (selectedSquare){
+    // Trying to move
+    if (legalDestinations.includes(sq)){
+      // Make the move (auto-promote to queen)
+      const move = chess.move({ from: selectedSquare, to: sq, promotion: 'q' });
+      animateMove(selectedSquare, sq, move);
+      selectedSquare = null;
+      legalDestinations = [];
+      clearHighlights();
+      updateStatus();
+      if (!chess.isGameOver()) setTimeout(aiMove, 500);
+      else showGameOver();
+      return;
+    }
+    // Tapped own piece → reselect
+    if (piece && piece.color === playerColor){
+      selectedSquare = sq;
+      showLegalMoves(sq);
+      return;
+    }
+    // Illegal
+    flashIllegal(sq);
+    selectedSquare = null;
+    clearHighlights();
+    return;
+  }
+
+  // No selection yet
+  if (piece && piece.color === playerColor){
+    selectedSquare = sq;
+    showLegalMoves(sq);
+  } else if (piece){
+    flashIllegal(sq);
+  }
+}
+
+// =======================================================
+// MOVE ANIMATION
+// =======================================================
+function animateMove(from, to, moveObj){
+  busy = true;
+  const mesh = pieceMeshes[from];
+  if (!mesh){ busy = false; rebuildPieces(); return; }
+
+  // Capture
+  if (moveObj.captured){
+    const target = moveObj.flags.includes('e') // en passant
+      ? (() => {
+          const [f, r] = squareToFR(to);
+          const capR = moveObj.color === 'w' ? r - 1 : r + 1;
+          return String.fromCharCode(97 + f) + (capR + 1);
+        })()
+      : to;
+    const captured = pieceMeshes[target];
+    if (captured) boardGroup.remove(captured);
+    delete pieceMeshes[target];
+  }
+
+  delete pieceMeshes[from];
+  pieceMeshes[to] = mesh;
+  mesh.userData.square = to;
+
+  const [f1, r1] = squareToFR(from);
+  const [f2, r2] = squareToFR(to);
+  const start = { x: BOARD_OFFSET + f1 * SQ, z: BOARD_OFFSET + r1 * SQ };
+  const end   = { x: BOARD_OFFSET + f2 * SQ, z: BOARD_OFFSET + r2 * SQ };
+  const dur = 350;
+  const t0 = performance.now();
+  const step = () => {
+    const t = Math.min(1, (performance.now() - t0) / dur);
+    const ease = t < 0.5 ? 2*t*t : 1 - Math.pow(-2*t+2,2)/2;
+    mesh.position.x = start.x + (end.x - start.x) * ease;
+    mesh.position.z = start.z + (end.z - start.z) * ease;
+    mesh.position.y = 0.005 + Math.sin(t * Math.PI) * 0.04;
+    if (t < 1) requestAnimationFrame(step);
+    else {
+      mesh.position.y = 0.005;
+      // Handle castling rook (moves separately)
+      if (moveObj.flags.includes('k') || moveObj.flags.includes('q')){
+        rebuildPieces();
+      }
+      // Promotion: rebuild that square
+      if (moveObj.flags.includes('p') || moveObj.promotion){
+        boardGroup.remove(mesh);
+        delete pieceMeshes[to];
+        const newPiece = chess.get(to);
+        placePiece(to, newPiece.type, newPiece.color);
+      }
+      busy = false;
+    }
+  };
+  requestAnimationFrame(step);
+}
+
+// =======================================================
+// AI — ~1200 ELO via depth-3 minimax + 18% blunder rate
+// =======================================================
+const PIECE_VALUE = { p:100, n:320, b:330, r:500, q:900, k:20000 };
+
+// Mild positional tables (centralization bonuses)
+const PST = {
+  p:[ 0,  0,  0,  0,  0,  0,  0,  0,
+      5, 10, 10,-20,-20, 10, 10,  5,
+      5, -5,-10,  0,  0,-10, -5,  5,
+      0,  0,  0, 20, 20,  0,  0,  0,
+      5,  5, 10, 25, 25, 10,  5,  5,
+     10, 10, 20, 30, 30, 20, 10, 10,
+     50, 50, 50, 50, 50, 50, 50, 50,
+      0,  0,  0,  0,  0,  0,  0,  0],
+  n:[-50,-40,-30,-30,-30,-30,-40,-50,
+     -40,-20,  0,  5,  5,  0,-20,-40,
+     -30,  5, 10, 15, 15, 10,  5,-30,
+     -30,  0, 15, 20, 20, 15,  0,-30,
+     -30,  5, 15, 20, 20, 15,  5,-30,
+     -30,  0, 10, 15, 15, 10,  0,-30,
+     -40,-20,  0,  0,  0,  0,-20,-40,
+     -50,-40,-30,-30,-30,-30,-40,-50],
+  b:[-20,-10,-10,-10,-10,-10,-10,-20,
+     -10,  5,  0,  0,  0,  0,  5,-10,
+     -10, 10, 10, 10, 10, 10, 10,-10,
+     -10,  0, 10, 10, 10, 10,  0,-10,
+     -10,  5,  5, 10, 10,  5,  5,-10,
+     -10,  0,  5, 10, 10,  5,  0,-10,
+     -10,  0,  0,  0,  0,  0,  0,-10,
+     -20,-10,-10,-10,-10,-10,-10,-20]
+};
+
+function evaluate(game){
+  if (game.isCheckmate()) return game.turn() === 'w' ? -99999 : 99999;
+  if (game.isDraw()) return 0;
+  let score = 0;
+  const board = game.board();
+  for (let r = 0; r < 8; r++){
+    for (let f = 0; f < 8; f++){
+      const cell = board[r][f];
+      if (!cell) continue;
+      const val = PIECE_VALUE[cell.type];
+      const sign = cell.color === 'w' ? 1 : -1;
+      score += sign * val;
+      if (PST[cell.type]){
+        const idx = cell.color === 'w' ? (7 - r) * 8 + f : r * 8 + f;
+        score += sign * PST[cell.type][idx];
+      }
+    }
+  }
+  return score;
+}
+
+function minimax(game, depth, alpha, beta, maximizing){
+  if (depth === 0 || game.isGameOver()) return evaluate(game);
+  const moves = game.moves();
+  // simple ordering: captures first
+  moves.sort((a,b) => (b.includes('x')?1:0) - (a.includes('x')?1:0));
+  if (maximizing){
+    let best = -Infinity;
+    for (const m of moves){
+      game.move(m);
+      const score = minimax(game, depth - 1, alpha, beta, false);
+      game.undo();
+      if (score > best) best = score;
+      alpha = Math.max(alpha, score);
+      if (beta <= alpha) break;
+    }
+    return best;
+  } else {
+    let best = Infinity;
+    for (const m of moves){
+      game.move(m);
+      const score = minimax(game, depth - 1, alpha, beta, true);
+      game.undo();
+      if (score < best) best = score;
+      beta = Math.min(beta, score);
+      if (beta <= alpha) break;
+    }
+    return best;
+  }
+}
+
+function chooseAIMove(){
+  const moves = chess.moves();
+  if (!moves.length) return null;
+
+  // ~1200 ELO simulation: with probability, play a random/weak move
+  const blunderRoll = Math.random();
+  if (blunderRoll < 0.18){
+    // Pick random non-losing-ish move (avoid hanging queen for free if possible)
+    return moves[Math.floor(Math.random() * moves.length)];
+  }
+
+  // Otherwise, depth-2 search with mild noise (keeps it human-like)
+  const aiSide = chess.turn();
+  const maximizing = aiSide === 'w'; // eval is from white POV
+  let best = maximizing ? -Infinity : Infinity;
+  let bestMoves = [];
+  for (const m of moves){
+    chess.move(m);
+    let score = minimax(chess, 2, -Infinity, Infinity, !maximizing);
+    chess.undo();
+    // tiny random perturbation
+    score += (Math.random() - 0.5) * 30;
+    if (maximizing){
+      if (score > best){ best = score; bestMoves = [m]; }
+      else if (score === best) bestMoves.push(m);
+    } else {
+      if (score < best){ best = score; bestMoves = [m]; }
+      else if (score === best) bestMoves.push(m);
+    }
+  }
+  // Among near-best moves, sometimes pick a slightly suboptimal one
+  if (Math.random() < 0.25 && moves.length > 3){
+    // Pick from top-3 candidates by re-running shallow eval
+    const scored = moves.map(m => {
+      chess.move(m);
+      const s = evaluate(chess) * (maximizing ? 1 : -1);
+      chess.undo();
+      return { m, s };
+    }).sort((a,b) => b.s - a.s);
+    const top = scored.slice(0, Math.min(3, scored.length));
+    return top[Math.floor(Math.random() * top.length)].m;
+  }
+  return bestMoves[Math.floor(Math.random() * bestMoves.length)];
+}
+
+function aiMove(){
+  if (chess.isGameOver()){ showGameOver(); return; }
+  if (chess.turn() === playerColor) return;
+  busy = true;
+  statusEl.innerHTML = '<span class="turn">AI is thinking…</span>';
+  setTimeout(() => {
+    const m = chooseAIMove();
+    if (!m){ busy = false; showGameOver(); return; }
+    const moveObj = chess.move(m);
+    animateMove(moveObj.from, moveObj.to, moveObj);
+    setTimeout(() => {
+      updateStatus();
+      if (chess.isGameOver()) showGameOver();
+    }, 400);
+  }, 400 + Math.random() * 700);
+}
+
+// =======================================================
+// STATUS / GAME OVER
+// =======================================================
+function updateStatus(){
+  if (chess.isGameOver()) return;
+  const turn = chess.turn();
+  const who = turn === playerColor ? 'Your move' : 'AI move';
+  const check = chess.inCheck() ? ' · <span style="color:var(--danger)">check</span>' : '';
+  statusEl.innerHTML = `<span class="turn">${who}</span>${check}`;
+}
+
+function showGameOver(){
+  let title = 'Game Over', sub = '';
+  if (chess.isCheckmate()){
+    const winner = chess.turn() === playerColor ? 'AI wins' : 'You win';
+    title = 'Checkmate'; sub = winner;
+  } else if (chess.isStalemate()){ title = 'Stalemate'; sub = 'Draw'; }
+  else if (chess.isThreefoldRepetition()){ title = 'Draw'; sub = 'Threefold repetition'; }
+  else if (chess.isInsufficientMaterial()){ title = 'Draw'; sub = 'Insufficient material'; }
+  else if (chess.isDraw()){ title = 'Draw'; sub = '50-move rule'; }
+  gameoverText.textContent = title;
+  gameoverSub.textContent = sub;
+  gameoverEl.classList.add('show');
+}
+</script>
+</body>
+</html>
