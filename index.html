@@ -320,11 +320,10 @@ async function startAR(){
   scene.add(dir);
 
   // MindAR's anchor space: marker is the XY plane, +Z points OUT of the marker (toward camera).
-  // Our board is built in the XZ plane with Y as "up". Rotate -90° on X so the board's
-  // Y-up axis aligns with the marker's Z-out — the board lies flat on the marker
-  // and pieces stand up out of it toward the camera.
+  // Our board is built in the XZ plane with Y as "up". Rotate +90° on X so the board's
+  // top surface (squares + pieces) faces the camera, with the base sitting behind the marker.
   boardGroup = new THREE.Group();
-  boardGroup.rotation.x = -Math.PI / 2;
+  boardGroup.rotation.x = Math.PI / 2;
   anchor.group.add(boardGroup);
 
   // Inner group lives inside boardGroup. We add all squares and pieces here.
