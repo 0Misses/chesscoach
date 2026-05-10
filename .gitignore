@@ -1,0 +1,9 @@
+server/node_modules/
+server/.env
+server/chess.db
+server/chess.db-journal
+server/chess.db-wal
+server/chess.db-shm
+*.log
+.DS_Store
+.claude/
