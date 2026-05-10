@@ -7,3 +7,5 @@ server/chess.db-shm
 *.log
 .DS_Store
 .claude/
+
+.vercel
