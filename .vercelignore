@@ -1,3 +1,6 @@
-server/
 .claude/
 edits.md
+.env
+.env.local
+node_modules/
+server/
