@@ -323,6 +323,161 @@
     transition:opacity .3s ease, transform .3s ease;
   }
   #toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+
+  /* =========================================================
+     Online play: search, challenges, 2D multiplayer board
+     ========================================================= */
+  .online-section{width:100%;max-width:520px;display:flex;flex-direction:column;gap:14px;}
+  .online-section h3{
+    font-family:'Playfair Display',serif;font-size:18px;margin-top:4px;
+  }
+  .search-row{display:flex;gap:8px;}
+  .search-row input{
+    flex:1;background:rgba(255,255,255,.06);
+    border:1px solid rgba(212,165,116,.25);
+    border-radius:10px;padding:11px 14px;font-size:15px;
+    color:var(--ink);font-family:'Inter',sans-serif;outline:none;
+  }
+  .search-row input:focus{border-color:var(--accent);}
+  .user-row{
+    display:flex;align-items:center;gap:10px;
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(212,165,116,.18);
+    border-radius:10px;padding:9px 12px;font-size:14px;
+  }
+  .user-row .uname{flex:1;font-weight:500;}
+  .user-row .dot{
+    width:8px;height:8px;border-radius:50%;
+    background:rgba(255,255,255,.25);
+  }
+  .user-row .dot.online{background:#5dd39e;box-shadow:0 0 6px #5dd39e;}
+  .user-row .small-btn{
+    background:var(--accent);color:#1a1620;border:none;
+    padding:6px 12px;border-radius:999px;
+    font-family:'Inter',sans-serif;font-size:12px;font-weight:700;cursor:pointer;
+  }
+  .user-row .small-btn[disabled]{opacity:.5;cursor:not-allowed;}
+  .challenge-row{
+    display:flex;align-items:center;gap:10px;
+    background:rgba(212,165,116,.08);
+    border:1px solid rgba(212,165,116,.3);
+    border-radius:10px;padding:10px 12px;font-size:13px;
+  }
+  .challenge-row .text{flex:1;}
+  .challenge-row .text strong{color:var(--accent);}
+  .challenge-row .accept{
+    background:#5dd39e;color:#0a0a0f;border:none;
+    padding:6px 12px;border-radius:999px;font-weight:700;font-size:12px;
+    font-family:'Inter',sans-serif;cursor:pointer;
+  }
+  .challenge-row .decline{
+    background:rgba(232,80,74,.2);color:var(--danger);
+    border:1px solid var(--danger);
+    padding:6px 12px;border-radius:999px;font-weight:700;font-size:12px;
+    font-family:'Inter',sans-serif;cursor:pointer;
+  }
+
+  /* 2D multiplayer board */
+  #mp-screen{
+    position:fixed;inset:0;z-index:85;display:none;
+    background:radial-gradient(ellipse at top,#1a1620 0%,#0a0a0f 70%);
+    flex-direction:column;align-items:center;justify-content:flex-start;
+    padding:20px 16px;gap:14px;overflow-y:auto;
+    font-family:'Inter',sans-serif;
+  }
+  #mp-screen.show{display:flex;}
+  #mp-header{
+    width:100%;max-width:520px;display:flex;justify-content:space-between;align-items:center;
+  }
+  #mp-header h2{font-family:'Playfair Display',serif;font-size:22px;}
+  #mp-header .leave-btn{
+    background:rgba(232,80,74,.15);border:1px solid var(--danger);
+    color:var(--danger);padding:6px 14px;border-radius:999px;
+    font-size:12px;cursor:pointer;font-family:inherit;
+  }
+  #mp-players{
+    width:100%;max-width:520px;display:flex;justify-content:space-between;gap:8px;
+    font-size:13px;
+  }
+  #mp-players .p{
+    flex:1;background:rgba(255,255,255,.04);
+    border:1px solid rgba(212,165,116,.18);
+    border-radius:10px;padding:8px 12px;text-align:center;
+  }
+  #mp-players .p.active{border-color:var(--accent);background:rgba(212,165,116,.12);}
+  #mp-players .p .who{font-weight:600;}
+  #mp-players .p .role{font-size:10px;opacity:.65;letter-spacing:.12em;text-transform:uppercase;margin-top:2px;}
+  #mp-turn{
+    font-size:13px;letter-spacing:.06em;text-transform:uppercase;
+    color:var(--accent);font-weight:600;min-height:18px;
+  }
+  #mp-board-wrap{
+    width:min(92vw,440px);aspect-ratio:1/1;position:relative;
+  }
+  #mp-board{
+    width:100%;height:100%;
+    display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);
+    border:3px solid #6b4423;border-radius:6px;overflow:hidden;
+    box-shadow:0 10px 40px rgba(0,0,0,.55);
+  }
+  #mp-board .sq{
+    display:flex;align-items:center;justify-content:center;
+    cursor:pointer;font-size:clamp(26px,7vw,42px);
+    user-select:none;-webkit-user-select:none;
+    position:relative;
+    line-height:1;
+  }
+  #mp-board .sq.light{background:#e8d4a8;color:#1a1620;}
+  #mp-board .sq.dark{background:#6b4423;color:#1a1620;}
+  #mp-board .sq .pc{position:relative;z-index:2;text-shadow:0 1px 2px rgba(0,0,0,.25);}
+  #mp-board .sq .pc.w{color:#fdfaf3;text-shadow:0 0 2px #000, 0 1px 3px rgba(0,0,0,.6);}
+  #mp-board .sq .pc.b{color:#0c0a08;}
+  #mp-board .sq.sel::after{
+    content:'';position:absolute;inset:0;background:rgba(249,217,73,.45);z-index:1;
+  }
+  #mp-board .sq.legal::before{
+    content:'';position:absolute;inset:30%;border-radius:50%;
+    background:rgba(93,211,158,.55);z-index:1;
+  }
+  #mp-board .sq.legal.has-piece::before{
+    inset:6%;background:transparent;border:4px solid rgba(93,211,158,.7);
+  }
+  #mp-board .sq.lastmove{box-shadow:inset 0 0 0 3px rgba(212,165,116,.7);}
+  #mp-board .sq.bad-flash::after{
+    content:'';position:absolute;inset:0;background:rgba(232,80,74,.55);z-index:1;
+    animation:bad 0.6s ease forwards;
+  }
+  @keyframes bad{0%{opacity:1;}100%{opacity:0;}}
+  #mp-result{
+    text-align:center;padding:14px 18px;font-size:15px;
+    background:rgba(255,255,255,.05);
+    border:1px solid rgba(212,165,116,.25);
+    border-radius:12px;max-width:520px;width:100%;
+    display:none;
+  }
+  #mp-result.show{display:block;}
+  #mp-result h3{font-family:'Playfair Display',serif;font-size:22px;color:var(--accent);margin-bottom:4px;}
+
+  /* Incoming-challenge popup (in-game / on splash) */
+  #challenge-popup{
+    position:fixed;top:80px;right:16px;left:16px;z-index:130;
+    background:rgba(10,10,15,.96);backdrop-filter:blur(14px);
+    border:1px solid var(--accent);border-radius:14px;
+    padding:14px 16px;display:none;flex-direction:column;gap:10px;
+    font-family:'Inter',sans-serif;
+    max-width:380px;margin-left:auto;
+    box-shadow:0 10px 40px rgba(0,0,0,.6);
+  }
+  #challenge-popup.show{display:flex;}
+  #challenge-popup .msg{font-size:13px;}
+  #challenge-popup .msg strong{color:var(--accent);}
+  #challenge-popup .row{display:flex;gap:8px;}
+  #challenge-popup .row button{
+    flex:1;padding:8px 0;border-radius:999px;border:none;
+    font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;
+  }
+  #challenge-popup .accept{background:#5dd39e;color:#0a0a0f;}
+  #challenge-popup .decline{background:rgba(232,80,74,.15);color:var(--danger);border:1px solid var(--danger);}
 </style>
 
 <!-- Fonts -->
@@ -361,6 +516,7 @@
       <button class="btn-pill" id="btn-logout">Logout</button>
     </div>
     <div class="row">
+      <button class="btn-pill" id="btn-show-online">Online Play</button>
       <button class="btn-pill" id="btn-show-leaderboard-splash">Leaderboard</button>
     </div>
   </div>
@@ -458,6 +614,7 @@
     <span id="user-chip" style="display:none;"></span>
     <button class="hud-btn" id="hud-login">Login</button>
     <button class="hud-btn" id="hud-profile" style="display:none;">Profile</button>
+    <button class="hud-btn" id="hud-online">Online</button>
     <button class="hud-btn" id="hud-leaderboard">Leaderboard</button>
     <button class="hud-btn" id="hud-logout" style="display:none;">Logout</button>
     <button id="reset-btn">↻ Reset</button>
@@ -470,6 +627,60 @@
 
 <!-- Flash overlay -->
 <div id="flash"></div>
+
+<!-- Online Play modal: search users, see incoming challenges -->
+<div id="online-modal" class="modal">
+  <button class="close-x" data-close="online-modal">×</button>
+  <h2>Online Play</h2>
+
+  <div class="online-section">
+    <h3>Find a player</h3>
+    <div class="search-row">
+      <input id="online-search-input" type="text" placeholder="Search username…" autocomplete="off" />
+    </div>
+    <div id="online-search-results"></div>
+  </div>
+
+  <div class="online-section">
+    <h3>Incoming challenges</h3>
+    <div id="online-incoming"><div class="empty-msg">None right now.</div></div>
+  </div>
+
+  <div class="online-section">
+    <h3>Sent</h3>
+    <div id="online-outgoing"><div class="empty-msg">No outgoing challenges.</div></div>
+  </div>
+</div>
+
+<!-- Multiplayer game screen (2D board for reliability) -->
+<div id="mp-screen">
+  <div id="mp-header">
+    <h2>Online Match</h2>
+    <button class="leave-btn" id="mp-leave">Resign / Leave</button>
+  </div>
+  <div id="mp-players">
+    <div class="p" id="mp-p-white">
+      <div class="who">—</div><div class="role">White</div>
+    </div>
+    <div class="p" id="mp-p-black">
+      <div class="who">—</div><div class="role">Black</div>
+    </div>
+  </div>
+  <div id="mp-turn">Loading…</div>
+  <div id="mp-board-wrap">
+    <div id="mp-board"></div>
+  </div>
+  <div id="mp-result"></div>
+</div>
+
+<!-- Incoming-challenge popup -->
+<div id="challenge-popup">
+  <div class="msg" id="cp-msg"></div>
+  <div class="row">
+    <button class="accept" id="cp-accept">Accept</button>
+    <button class="decline" id="cp-decline">Decline</button>
+  </div>
+</div>
 
 <!-- Game over -->
 <div id="gameover">
@@ -599,6 +810,8 @@ document.getElementById('btn-show-register').onclick        = () => { clearRegEr
 document.getElementById('btn-logout').onclick               = () => { clearAuth(); toast('Logged out'); };
 document.getElementById('btn-show-profile').onclick         = () => openProfile();
 document.getElementById('btn-show-leaderboard-splash').onclick = () => openLeaderboard();
+document.getElementById('btn-show-online').onclick           = () => openOnline();
+document.getElementById('hud-online').onclick               = () => openOnline();
 document.getElementById('swap-to-register').onclick = () => { closeModal('login-modal');    clearRegErr();   openModal('register-modal'); };
 document.getElementById('swap-to-login').onclick    = () => { closeModal('register-modal'); clearLoginErr(); openModal('login-modal'); };
 
@@ -774,6 +987,478 @@ async function bootstrapAuth(){
   }
 }
 bootstrapAuth();
+
+// =======================================================
+// ONLINE MULTIPLAYER (search + challenges + live game)
+// Uses HTTP polling at 2s — see lib/online-routes.js header.
+// =======================================================
+let onlineModalOpen = false;
+let mpScreenOpen = false;
+let currentGameId = null;
+let mpChess = null;             // chess.js instance mirroring server FEN
+let mpMyColor = null;           // 'w' | 'b'
+let mpSelectedSquare = null;
+let mpLastVersion = -1;         // server num_moves we've rendered
+let mpLastMove = null;          // {from,to} for highlight
+let mpGameOver = false;
+let mpPollTimer = null;
+let pollTimers = { incoming: null, outgoing: null, search: null, heartbeat: null };
+let lastIncomingIds = new Set(); // for popup dedupe
+let dismissedChallenges = new Set();
+let autoJoinedChallenges = new Set(); // accepted-outgoing challenges already entered
+
+// ---- API helpers ----
+async function searchUsers(q){
+  return api(`/api/users/search?username=${encodeURIComponent(q)}`);
+}
+async function sendChallenge(targetUsername){
+  return api('/api/challenges', { method:'POST', body: JSON.stringify({ challenged_username: targetUsername }) });
+}
+async function getIncoming(){ return api('/api/challenges/incoming'); }
+async function getOutgoing(){ return api('/api/challenges/outgoing'); }
+async function acceptChallenge(id){ return api(`/api/challenges/${id}/accept`,  { method:'POST' }); }
+async function declineChallenge(id){ return api(`/api/challenges/${id}/decline`,{ method:'POST' }); }
+async function cancelChallenge(id){ return api(`/api/challenges/${id}/cancel`,  { method:'POST' }); }
+async function getGame(id){ return api(`/api/games/${id}`); }
+async function postMove(id, from, to, promotion){
+  return api(`/api/games/${id}/move`, { method:'POST', body: JSON.stringify({ from, to, promotion }) });
+}
+async function resignGame(id){ return api(`/api/games/${id}/resign`, { method:'POST' }); }
+async function heartbeat(){
+  try { await api('/api/online/heartbeat', { method:'POST' }); } catch(_){}
+}
+
+// ---- Open / close the online modal ----
+function openOnline(){
+  if (!currentUser){ openModal('login-modal'); return; }
+  openModal('online-modal');
+  onlineModalOpen = true;
+  document.getElementById('online-search-input').value = '';
+  document.getElementById('online-search-results').innerHTML = '';
+  refreshIncoming();
+  refreshOutgoing();
+  startOnlinePolls();
+}
+document.querySelector('#online-modal .close-x').addEventListener('click', () => {
+  onlineModalOpen = false;
+  stopOnlinePolls();
+});
+
+// ---- Search (debounced) ----
+let searchDebounce = null;
+document.getElementById('online-search-input').addEventListener('input', (ev) => {
+  const v = ev.target.value.trim();
+  clearTimeout(searchDebounce);
+  if (!v){
+    document.getElementById('online-search-results').innerHTML = '';
+    return;
+  }
+  searchDebounce = setTimeout(() => doSearch(v), 220);
+});
+async function doSearch(q){
+  const el = document.getElementById('online-search-results');
+  el.innerHTML = '<div class="empty-msg" style="padding:6px 0;">Searching…</div>';
+  try {
+    const { users } = await searchUsers(q);
+    if (!users.length){ el.innerHTML = '<div class="empty-msg" style="padding:6px 0;">No users found.</div>'; return; }
+    el.innerHTML = users.map(u => `
+      <div class="user-row" data-id="${u.id}" data-username="${escapeHtml(u.username)}">
+        <span class="dot ${u.online ? 'online' : ''}" title="${u.online ? 'Online' : 'Offline'}"></span>
+        <span class="uname">${escapeHtml(u.username)}</span>
+        <button class="small-btn">Send Challenge</button>
+      </div>
+    `).join('');
+    el.querySelectorAll('.user-row .small-btn').forEach(b => {
+      b.addEventListener('click', async () => {
+        const row = b.closest('.user-row');
+        b.disabled = true; b.textContent = 'Sending…';
+        try {
+          await sendChallenge(row.dataset.username);
+          b.textContent = 'Sent ✓';
+          toast(`Challenge sent to ${row.dataset.username}`);
+          refreshOutgoing();
+        } catch (e){
+          b.disabled = false; b.textContent = 'Send Challenge';
+          toast(e.message, 3000);
+        }
+      });
+    });
+  } catch (e){
+    el.innerHTML = `<div class="empty-msg" style="padding:6px 0;">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// ---- Incoming + outgoing rendering ----
+async function refreshIncoming(){
+  const el = document.getElementById('online-incoming');
+  try {
+    const { challenges } = await getIncoming();
+    handleIncomingPopup(challenges);
+    if (!challenges.length){
+      el.innerHTML = '<div class="empty-msg">None right now.</div>';
+      return;
+    }
+    el.innerHTML = challenges.map(c => `
+      <div class="challenge-row" data-id="${c.id}">
+        <div class="text"><strong>${escapeHtml(c.challenger_username)}</strong> challenged you</div>
+        <button class="accept">Accept</button>
+        <button class="decline">Decline</button>
+      </div>
+    `).join('');
+    el.querySelectorAll('.challenge-row').forEach(row => {
+      row.querySelector('.accept').addEventListener('click', () => onAcceptClick(row.dataset.id));
+      row.querySelector('.decline').addEventListener('click', () => onDeclineClick(row.dataset.id));
+    });
+  } catch (e){
+    el.innerHTML = `<div class="empty-msg">${escapeHtml(e.message)}</div>`;
+  }
+}
+async function refreshOutgoing(){
+  const el = document.getElementById('online-outgoing');
+  try {
+    const { challenges } = await getOutgoing();
+    // Detect just-accepted outgoing challenges → auto-jump into the game.
+    const accepted = challenges.find(c => c.status === 'accepted' && c.game_id && !mpScreenOpen && !autoJoinedChallenges.has(c.id));
+    if (accepted){
+      autoJoinedChallenges.add(accepted.id);
+      toast(`${accepted.challenged_username} accepted!`);
+      enterGame(accepted.game_id);
+      return;
+    }
+    const pending = challenges.filter(c => c.status === 'pending');
+    if (!pending.length){
+      el.innerHTML = '<div class="empty-msg">No outgoing challenges.</div>';
+    } else {
+      el.innerHTML = pending.map(c => `
+        <div class="challenge-row" data-id="${c.id}">
+          <div class="text">Waiting on <strong>${escapeHtml(c.challenged_username)}</strong>…</div>
+          <button class="decline">Cancel</button>
+        </div>
+      `).join('');
+      el.querySelectorAll('.challenge-row .decline').forEach(b => {
+        b.addEventListener('click', async () => {
+          const id = b.closest('.challenge-row').dataset.id;
+          try { await cancelChallenge(id); refreshOutgoing(); } catch (e){ toast(e.message); }
+        });
+      });
+    }
+    // Recently-declined surfaced as a one-time toast.
+    challenges.filter(c => c.status === 'declined' && !dismissedChallenges.has('d_' + c.id))
+      .forEach(c => { dismissedChallenges.add('d_' + c.id); toast(`${c.challenged_username} declined`); });
+  } catch (e){
+    el.innerHTML = `<div class="empty-msg">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+// ---- Popup notification when a fresh incoming challenge arrives ----
+function handleIncomingPopup(challenges){
+  // Only fire when not already in a game.
+  if (mpScreenOpen) return;
+  const fresh = challenges.find(c => !lastIncomingIds.has(c.id) && !dismissedChallenges.has(c.id));
+  challenges.forEach(c => lastIncomingIds.add(c.id));
+  if (!fresh) return;
+  const popup = document.getElementById('challenge-popup');
+  document.getElementById('cp-msg').innerHTML =
+    `<strong>${escapeHtml(fresh.challenger_username)}</strong> challenged you to a chess match.`;
+  popup.classList.add('show');
+  document.getElementById('cp-accept').onclick  = () => { popup.classList.remove('show'); onAcceptClick(fresh.id); };
+  document.getElementById('cp-decline').onclick = () => { popup.classList.remove('show'); onDeclineClick(fresh.id); };
+}
+
+async function onAcceptClick(id){
+  try {
+    const out = await acceptChallenge(id);
+    dismissedChallenges.add(Number(id));
+    closeModal('online-modal'); onlineModalOpen = false;
+    enterGame(out.game_id);
+  } catch (e){ toast(e.message, 3000); refreshIncoming(); }
+}
+async function onDeclineClick(id){
+  try {
+    await declineChallenge(id);
+    dismissedChallenges.add(Number(id));
+    refreshIncoming();
+  } catch (e){ toast(e.message, 3000); }
+}
+
+// ---- Polling (challenges) ----
+// Frontend uses HTTP polling because Vercel Functions can't host persistent
+// Socket.IO connections — see lib/online-routes.js header.
+function startOnlinePolls(){
+  stopOnlinePolls();
+  pollTimers.incoming = setInterval(() => { if (onlineModalOpen) refreshIncoming(); }, 2500);
+  pollTimers.outgoing = setInterval(() => { if (onlineModalOpen) refreshOutgoing(); }, 2500);
+}
+function stopOnlinePolls(){
+  clearInterval(pollTimers.incoming); pollTimers.incoming = null;
+  clearInterval(pollTimers.outgoing); pollTimers.outgoing = null;
+}
+
+// Global background poller for incoming challenges, even when the online
+// modal isn't open — so users can be notified mid-AR-game.
+function startBackgroundChallengePoll(){
+  if (pollTimers.bg) return;
+  pollTimers.bg = setInterval(async () => {
+    if (!currentUser || mpScreenOpen) return;
+    try {
+      const [{ challenges: incoming }, { challenges: outgoing }] = await Promise.all([
+        getIncoming(), getOutgoing()
+      ]);
+      handleIncomingPopup(incoming);
+      // Auto-jump challenger into the game once accepted.
+      const accepted = outgoing.find(c => c.status === 'accepted' && c.game_id && !autoJoinedChallenges.has(c.id));
+      if (accepted){
+        autoJoinedChallenges.add(accepted.id);
+        toast(`${accepted.challenged_username} accepted!`);
+        closeModal('online-modal'); onlineModalOpen = false;
+        enterGame(accepted.game_id);
+      }
+    } catch (_){}
+  }, 3000);
+}
+// Heartbeat so other users see this one as "online".
+function startHeartbeat(){
+  if (pollTimers.heartbeat) return;
+  heartbeat();
+  pollTimers.heartbeat = setInterval(() => { if (currentUser) heartbeat(); }, 15000);
+}
+// Kick off background pollers once we know the user is signed in.
+function maybeStartBackground(){
+  if (currentUser){ startBackgroundChallengePoll(); startHeartbeat(); }
+}
+const _origRefreshAuthUI = refreshAuthUI;
+refreshAuthUI = function(){ _origRefreshAuthUI(); maybeStartBackground(); };
+// Run once now in case bootstrapAuth already set currentUser.
+maybeStartBackground();
+
+// =======================================================
+// 2D multiplayer board — separate from the AR engine so it
+// always works even if AR/camera is unavailable.
+// =======================================================
+const PIECE_GLYPH = {
+  w: { k:'♔', q:'♕', r:'♖', b:'♗', n:'♘', p:'♙' },
+  b: { k:'♚', q:'♛', r:'♜', b:'♝', n:'♞', p:'♟' }
+};
+
+function enterGame(gameId){
+  currentGameId = gameId;
+  mpScreenOpen = true;
+  mpGameOver = false;
+  mpSelectedSquare = null;
+  mpLastVersion = -1;
+  mpLastMove = null;
+  mpChess = new Chess();
+  document.getElementById('mp-screen').classList.add('show');
+  document.getElementById('mp-result').classList.remove('show');
+  document.getElementById('mp-result').innerHTML = '';
+  buildMpBoard();
+  refreshGame();
+  startGamePoll();
+}
+function leaveGame(){
+  mpScreenOpen = false;
+  currentGameId = null;
+  stopGamePoll();
+  document.getElementById('mp-screen').classList.remove('show');
+}
+document.getElementById('mp-leave').addEventListener('click', async () => {
+  if (!currentGameId) return leaveGame();
+  if (mpGameOver) return leaveGame();
+  if (!confirm('Resign this game?')) return;
+  try { await resignGame(currentGameId); } catch (e){ toast(e.message); }
+  // The next poll will surface the resign result; user can still see it.
+});
+
+function buildMpBoard(){
+  const board = document.getElementById('mp-board');
+  board.innerHTML = '';
+  // Build top-to-bottom rows. Flip if I'm black so my pieces are at the bottom.
+  const ranks = mpMyColor === 'b' ? [1,2,3,4,5,6,7,8] : [8,7,6,5,4,3,2,1];
+  const files = mpMyColor === 'b' ? ['h','g','f','e','d','c','b','a'] : ['a','b','c','d','e','f','g','h'];
+  for (const r of ranks){
+    for (const f of files){
+      const sq = f + r;
+      const fIdx = f.charCodeAt(0) - 97;
+      const isLight = (fIdx + r) % 2 === 1;
+      const cell = document.createElement('div');
+      cell.className = `sq ${isLight ? 'light' : 'dark'}`;
+      cell.dataset.square = sq;
+      cell.addEventListener('click', () => onMpSquareClick(sq));
+      board.appendChild(cell);
+    }
+  }
+}
+
+function renderMpBoard(){
+  const board = document.getElementById('mp-board');
+  // Wipe state classes + glyphs
+  board.querySelectorAll('.sq').forEach(cell => {
+    cell.classList.remove('sel','legal','has-piece','lastmove');
+    cell.innerHTML = '';
+  });
+  // Place pieces from chess.board()
+  const grid = mpChess.board();
+  for (let r = 0; r < 8; r++){
+    for (let f = 0; f < 8; f++){
+      const piece = grid[r][f];
+      if (!piece) continue;
+      const sq = String.fromCharCode(97 + f) + (8 - r);
+      const cell = board.querySelector(`.sq[data-square="${sq}"]`);
+      if (!cell) continue;
+      const span = document.createElement('span');
+      span.className = 'pc ' + piece.color;
+      span.textContent = PIECE_GLYPH[piece.color][piece.type];
+      cell.appendChild(span);
+    }
+  }
+  if (mpLastMove){
+    const a = board.querySelector(`.sq[data-square="${mpLastMove.from}"]`);
+    const b = board.querySelector(`.sq[data-square="${mpLastMove.to}"]`);
+    if (a) a.classList.add('lastmove');
+    if (b) b.classList.add('lastmove');
+  }
+  if (mpSelectedSquare){
+    const selCell = board.querySelector(`.sq[data-square="${mpSelectedSquare}"]`);
+    if (selCell) selCell.classList.add('sel');
+    const moves = mpChess.moves({ square: mpSelectedSquare, verbose: true });
+    moves.forEach(m => {
+      const c = board.querySelector(`.sq[data-square="${m.to}"]`);
+      if (!c) return;
+      c.classList.add('legal');
+      if (mpChess.get(m.to)) c.classList.add('has-piece');
+    });
+  }
+}
+
+function flashBad(square){
+  const cell = document.getElementById('mp-board').querySelector(`.sq[data-square="${square}"]`);
+  if (!cell) return;
+  cell.classList.remove('bad-flash'); void cell.offsetWidth; cell.classList.add('bad-flash');
+}
+
+async function onMpSquareClick(sq){
+  if (mpGameOver) return;
+  if (mpChess.turn() !== mpMyColor){ toast('Not your turn'); return; }
+
+  const piece = mpChess.get(sq);
+
+  if (mpSelectedSquare){
+    if (mpSelectedSquare === sq){
+      mpSelectedSquare = null; renderMpBoard(); return;
+    }
+    const moves = mpChess.moves({ square: mpSelectedSquare, verbose: true });
+    const target = moves.find(m => m.to === sq);
+    if (target){
+      const from = mpSelectedSquare;
+      mpSelectedSquare = null;
+      try {
+        const res = await postMove(currentGameId, from, sq, target.promotion || 'q');
+        // Re-load FEN from server response so we always match authoritative state.
+        mpChess.load(res.fen);
+        mpLastMove = { from, to: sq };
+        mpLastVersion = res.version;
+        renderMpBoard();
+        updateMpTurn(res.turn);
+        if (res.status && res.status !== 'active') showMpResult(res.status, res.winner_id, res.ending_type);
+      } catch (e){
+        toast(e.message || 'Illegal move', 2200);
+        flashBad(sq);
+        renderMpBoard();
+      }
+      return;
+    }
+    if (piece && piece.color === mpMyColor){
+      mpSelectedSquare = sq; renderMpBoard(); return;
+    }
+    flashBad(sq); mpSelectedSquare = null; renderMpBoard(); return;
+  }
+  if (piece && piece.color === mpMyColor){
+    mpSelectedSquare = sq; renderMpBoard();
+  } else if (piece){
+    flashBad(sq);
+  }
+}
+
+function updateMpTurn(turn){
+  const t = document.getElementById('mp-turn');
+  if (mpGameOver){ t.textContent = ''; return; }
+  if (turn === mpMyColor) t.textContent = 'Your turn';
+  else t.textContent = "Opponent's turn";
+  document.getElementById('mp-p-white').classList.toggle('active', turn === 'w');
+  document.getElementById('mp-p-black').classList.toggle('active', turn === 'b');
+}
+
+function showMpResult(status, winnerId, endingType){
+  mpGameOver = true;
+  stopGamePoll();
+  const el = document.getElementById('mp-result');
+  let title = 'Game over', sub = '';
+  const meIsWinner = winnerId === (currentUser && currentUser.id);
+  if (status === 'checkmate'){
+    title = meIsWinner ? 'You win — checkmate' : 'You lose — checkmate';
+  } else if (status === 'resigned'){
+    title = meIsWinner ? 'You win — opponent resigned' : 'You resigned';
+  } else if (status === 'stalemate'){
+    title = 'Draw — stalemate';
+  } else if (status === 'draw'){
+    title = 'Draw'; sub = endingType ? `(${endingType})` : '';
+  } else {
+    title = `Game ${status}`;
+  }
+  el.innerHTML = `<h3>${escapeHtml(title)}</h3><div>${escapeHtml(sub)}</div>
+    <div style="margin-top:10px;"><button class="btn-pill primary" id="mp-back">Back to lobby</button></div>`;
+  el.classList.add('show');
+  document.getElementById('mp-turn').textContent = '';
+  document.getElementById('mp-back').onclick = () => leaveGame();
+}
+
+async function refreshGame(){
+  if (!currentGameId) return;
+  try {
+    const { game } = await getGame(currentGameId);
+    // Identify my color from the player IDs.
+    if (currentUser){
+      mpMyColor = game.white_player_id === currentUser.id ? 'w'
+                : game.black_player_id === currentUser.id ? 'b' : null;
+    }
+    document.getElementById('mp-p-white').querySelector('.who').textContent = game.white_username;
+    document.getElementById('mp-p-black').querySelector('.who').textContent = game.black_username;
+
+    // Re-render only when the server has advanced past us. Skipping unchanged
+    // versions keeps the UI from clobbering an in-flight move.
+    if (game.version !== mpLastVersion){
+      mpChess.load(game.fen);
+      mpLastVersion = game.version;
+      // If we don't have a lastMove yet (mid-game refresh), don't fake one.
+      // Otherwise leave the most recent client-side highlight in place.
+      // (Server response on our own move already updates mpLastMove.)
+      // Rebuild board orientation now that mpMyColor is known.
+      if (!document.getElementById('mp-board').children.length || !document.getElementById('mp-board').firstChild.dataset.square){
+        buildMpBoard();
+      }
+      // Rebuild if perspective changed (e.g. very first load after we discover our color).
+      const board = document.getElementById('mp-board');
+      const expectFirst = mpMyColor === 'b' ? 'h1' : 'a8';
+      if (board.firstChild && board.firstChild.dataset.square !== expectFirst){
+        buildMpBoard();
+      }
+      renderMpBoard();
+    }
+    updateMpTurn(game.turn);
+    if (game.status && game.status !== 'active' && !mpGameOver){
+      showMpResult(game.status, game.winner_id, game.ending_type);
+    }
+  } catch (e){
+    document.getElementById('mp-turn').textContent = `Couldn't load: ${e.message}`;
+  }
+}
+function startGamePoll(){
+  stopGamePoll();
+  mpPollTimer = setInterval(refreshGame, 2000);
+}
+function stopGamePoll(){
+  if (mpPollTimer){ clearInterval(mpPollTimer); mpPollTimer = null; }
+}
 
 // Match recording — called once per finished game from showGameOver().
 let gameStartTime = Date.now();

@@ -14,6 +14,7 @@ Web-based augmented-reality chess. Point your phone camera at a printed marker, 
 - **Match tracking** — every finished game (when logged in) is saved with result, color, moves, duration, and ending type.
 - **Stats page** — total games, W/L/D, win rate, current & best win streak, avg moves, avg duration, white vs black, recent matches.
 - **Leaderboard** — ranked by win rate / most wins / most games (≥3 games to qualify).
+- **Online multiplayer** — search users by username, send challenges, play live human-vs-human chess on a 2D board with turn enforcement and game-over detection.
 - **Guests still play** — AR chess works without an account; you'll be prompted to log in to save stats.
 
 ---
@@ -36,6 +37,7 @@ chesscoach/
 │   ├── auth-routes.js      # /api/register, /api/login, /api/me
 │   ├── match-routes.js     # /api/matches, /api/stats/me
 │   ├── leaderboard.js      # /api/leaderboard
+│   ├── online-routes.js    # online multiplayer: search, challenges, games, moves
 │   └── middleware.js       # JWT verifier
 └── server/
     └── local.js            # Local dev entry: runs the Express app on :3001
@@ -113,13 +115,74 @@ Pushes the static frontend AND the function — both end up on the same Vercel d
 | `POST` | `/api/matches`       | ✓ | `{result, user_color, difficulty?, ending_type?, num_moves, duration_seconds}` | `{id}` |
 | `GET`  | `/api/stats/me`      | ✓ | — | `{user, stats, recent_matches}` |
 | `GET`  | `/api/leaderboard`   | — | `?sort=winrate\|wins\|games` | `{sort, entries}` |
+| `POST` | `/api/online/heartbeat`        | ✓ | — | `{ok}` |
+| `GET`  | `/api/users/search`            | ✓ | `?username=<prefix>` | `{users:[{id,username,online}]}` |
+| `POST` | `/api/challenges`              | ✓ | `{challenged_username}` | `{challenge}` |
+| `GET`  | `/api/challenges/incoming`     | ✓ | — | `{challenges}` |
+| `GET`  | `/api/challenges/outgoing`     | ✓ | — | `{challenges}` |
+| `POST` | `/api/challenges/:id/accept`   | ✓ | — | `{ok, game_id}` |
+| `POST` | `/api/challenges/:id/decline`  | ✓ | — | `{ok}` |
+| `POST` | `/api/challenges/:id/cancel`   | ✓ | — | `{ok}` |
+| `GET`  | `/api/games/:id`               | ✓ | — | `{game, moves}` |
+| `POST` | `/api/games/:id/move`          | ✓ | `{from, to, promotion?}` | `{ok, fen, turn, status, version, move}` |
+| `POST` | `/api/games/:id/resign`        | ✓ | — | `{ok, winner_id}` |
+| `GET`  | `/api/games/mine/recent`       | ✓ | — | `{games}` |
+
+---
+
+## Online multiplayer
+
+### How it works
+
+1. Sign in (multiplayer requires an account).
+2. Click **Online Play** (splash or HUD).
+3. Type a username — search results show a green dot for users currently online.
+4. **Send Challenge**. The other user gets an in-app popup with **Accept / Decline**.
+5. On accept, both users are auto-routed into a shared 2D board. Colors are randomized.
+6. Take turns clicking your piece, then its destination. Server validates every move; illegal moves flash red. The HUD always shows whose turn it is.
+7. The first checkmate / stalemate / resignation ends the game and shows the result; click **Back to lobby** to return.
+
+### Real-time strategy
+
+The spec recommends Socket.IO. This project is deployed on **Vercel Serverless Functions**, which terminate after each request and can't hold persistent WebSocket connections — Socket.IO requires a long-running host. To keep deploy on one platform, multiplayer uses the spec's stated fallback: short-interval **HTTP polling** (2–3 s) for challenge updates and game state. The data model is designed so a Socket.IO layer could be added later without changes.
+
+- `GET /api/challenges/incoming` — polled every 3 s in the background (incoming popup).
+- `GET /api/challenges/outgoing` — polled in the background; auto-jumps the challenger into the game on accept.
+- `GET /api/games/:id` — polled every 2 s while a game screen is open. The `version` field (server `num_moves`) lets the client skip rerenders when nothing changed.
+- `POST /api/online/heartbeat` — every 15 s while signed in, bumps `users.last_seen` so others see "online".
+
+### Testing with two users
+
+1. `npm run dev` (terminal A) and serve `index.html` (`npx serve .` in terminal B).
+2. Open the site in **two different browser windows** (or a regular window + an incognito window — important so they have separate `localStorage` tokens).
+3. Register two accounts: e.g. `alice` and `bob`.
+4. In each window, click **Online Play**.
+5. From Alice, search `bob` → **Send Challenge**.
+6. Bob sees a popup → **Accept**. Both windows jump into the multiplayer board.
+7. Make moves on the side whose turn it is; the other window updates within ~2 s.
+8. End the game with checkmate or **Resign / Leave** to see the result screen.
+
+### Database schema additions
+
+- `users.last_seen TIMESTAMPTZ` — heartbeat presence column (added via `ALTER TABLE … IF NOT EXISTS`).
+- `challenges` — `id, challenger_id, challenged_id, status, game_id, created_at, updated_at`. Statuses: `pending | accepted | declined | expired | cancelled`.
+- `games` — `id, white_player_id, black_player_id, fen, turn, status, winner_id, ending_type, num_moves, created_at, updated_at`. Statuses: `active | checkmate | stalemate | draw | abandoned | resigned`. Board state is full FEN.
+- `moves` — `id, game_id, player_id, from_square, to_square, promotion, san, move_number, fen_after, created_at`.
+
+Apply with: `npm run init-db` (idempotent).
+
+### Security
+
+- All endpoints require `Authorization: Bearer <jwt>` (existing middleware).
+- Server is authoritative for moves: loads the stored FEN, re-validates the move with `chess.js`, rejects illegal moves and out-of-turn moves with a 4xx error.
+- Challenge ownership is checked on accept / decline / cancel (only the appropriate party can act).
 
 ---
 
 ## Tech
 
 - **Frontend:** [Three.js](https://threejs.org/), [MindAR](https://github.com/hiukim/mind-ar-js), [chess.js](https://github.com/jhlywa/chess.js), vanilla JS via ES modules + import map. No build step.
-- **Backend:** Express on Vercel Functions, [@neondatabase/serverless](https://www.npmjs.com/package/@neondatabase/serverless), bcryptjs, jsonwebtoken, cors.
+- **Backend:** Express on Vercel Functions, [@neondatabase/serverless](https://www.npmjs.com/package/@neondatabase/serverless), [chess.js](https://github.com/jhlywa/chess.js) (server-side move validation), bcryptjs, jsonwebtoken, cors.
 - **DB:** Neon Postgres (serverless), provisioned via Vercel Marketplace.
 
 ---
