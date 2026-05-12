@@ -743,11 +743,14 @@ function setAuth(token, user){
   localStorage.setItem(USER_KEY, JSON.stringify(user));
   currentUser = user;
   refreshAuthUI();
+  maybeStartBackground();
 }
 function clearAuth(){
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
   currentUser = null;
+  stopBackgroundPoll();
+  stopHeartbeat();
   refreshAuthUI();
 }
 
@@ -894,10 +897,12 @@ function renderStats(data){
     const cls = m.result;
     const date = formatDate(m.played_at);
     const ending = m.ending_type ? ` · ${m.ending_type}` : '';
+    const opp = m.opponent || 'computer';
+    const oppLabel = opp === 'computer' ? 'computer' : '@' + opp;
     return `<div class="recent-row">
       <div class="badge ${cls}">${cls.toUpperCase()}</div>
       <div>
-        <div>vs computer · ${m.user_color === 'w' ? 'White' : 'Black'}${ending}</div>
+        <div>vs ${escapeHtml(oppLabel)} · ${m.user_color === 'w' ? 'White' : 'Black'}${ending}</div>
         <div class="meta">${m.num_moves} moves · ${formatDuration(m.duration_seconds)} · ${date}</div>
       </div>
       <div class="meta">${escapeHtml(m.difficulty || '')}</div>
@@ -912,8 +917,7 @@ function formatDuration(sec){
   return m ? `${m}m ${s}s` : `${s}s`;
 }
 function formatDate(iso){
-  // SQLite datetime() returns "YYYY-MM-DD HH:MM:SS" in UTC. Make it a real Date.
-  const d = new Date(iso.replace(' ', 'T') + 'Z');
+  const d = new Date(iso);
   if (isNaN(d)) return iso;
   return d.toLocaleString();
 }
@@ -1002,7 +1006,8 @@ let mpLastVersion = -1;         // server num_moves we've rendered
 let mpLastMove = null;          // {from,to} for highlight
 let mpGameOver = false;
 let mpPollTimer = null;
-let pollTimers = { incoming: null, outgoing: null, search: null, heartbeat: null };
+let mpPollErrors = 0;
+let pollTimers = { incoming: null, outgoing: null, search: null, heartbeat: null, bg: null };
 let lastIncomingIds = new Set(); // for popup dedupe
 let dismissedChallenges = new Set();
 let autoJoinedChallenges = new Set(); // accepted-outgoing challenges already entered
@@ -1216,18 +1221,23 @@ function startBackgroundChallengePoll(){
     } catch (_){}
   }, 3000);
 }
+function stopBackgroundPoll(){
+  if (pollTimers.bg){ clearInterval(pollTimers.bg); pollTimers.bg = null; }
+}
 // Heartbeat so other users see this one as "online".
 function startHeartbeat(){
   if (pollTimers.heartbeat) return;
   heartbeat();
   pollTimers.heartbeat = setInterval(() => { if (currentUser) heartbeat(); }, 15000);
 }
+function stopHeartbeat(){
+  if (pollTimers.heartbeat){ clearInterval(pollTimers.heartbeat); pollTimers.heartbeat = null; }
+}
 // Kick off background pollers once we know the user is signed in.
+// Called explicitly from setAuth and bootstrapAuth.
 function maybeStartBackground(){
   if (currentUser){ startBackgroundChallengePoll(); startHeartbeat(); }
 }
-const _origRefreshAuthUI = refreshAuthUI;
-refreshAuthUI = function(){ _origRefreshAuthUI(); maybeStartBackground(); };
 // Run once now in case bootstrapAuth already set currentUser.
 maybeStartBackground();
 
@@ -1247,11 +1257,13 @@ function enterGame(gameId){
   mpSelectedSquare = null;
   mpLastVersion = -1;
   mpLastMove = null;
+  mpMyColor = null;       // reset; refreshGame discovers it from server
+  mpPollErrors = 0;
   mpChess = new Chess();
   document.getElementById('mp-screen').classList.add('show');
   document.getElementById('mp-result').classList.remove('show');
   document.getElementById('mp-result').innerHTML = '';
-  buildMpBoard();
+  document.getElementById('mp-board').innerHTML = '';  // let refreshGame rebuild with correct orientation
   refreshGame();
   startGamePoll();
 }
@@ -1415,7 +1427,8 @@ function showMpResult(status, winnerId, endingType){
 async function refreshGame(){
   if (!currentGameId) return;
   try {
-    const { game } = await getGame(currentGameId);
+    const { game, moves } = await getGame(currentGameId);
+    mpPollErrors = 0;
     // Identify my color from the player IDs.
     if (currentUser){
       mpMyColor = game.white_player_id === currentUser.id ? 'w'
@@ -1428,18 +1441,19 @@ async function refreshGame(){
     // versions keeps the UI from clobbering an in-flight move.
     if (game.version !== mpLastVersion){
       mpChess.load(game.fen);
-      mpLastVersion = game.version;
-      // If we don't have a lastMove yet (mid-game refresh), don't fake one.
-      // Otherwise leave the most recent client-side highlight in place.
-      // (Server response on our own move already updates mpLastMove.)
-      // Rebuild board orientation now that mpMyColor is known.
-      if (!document.getElementById('mp-board').children.length || !document.getElementById('mp-board').firstChild.dataset.square){
-        buildMpBoard();
+      // Highlight whichever move the server thinks was last — so an opponent's
+      // move is shown after we poll for it, not just our own from postMove.
+      if (moves && moves.length){
+        const last = moves[moves.length - 1];
+        mpLastMove = { from: last.from_square, to: last.to_square };
       }
-      // Rebuild if perspective changed (e.g. very first load after we discover our color).
+      mpLastVersion = game.version;
+      // Rebuild board orientation now that mpMyColor is known, or if perspective changed.
       const board = document.getElementById('mp-board');
       const expectFirst = mpMyColor === 'b' ? 'h1' : 'a8';
-      if (board.firstChild && board.firstChild.dataset.square !== expectFirst){
+      if (!board.children.length ||
+          !board.firstChild.dataset.square ||
+          board.firstChild.dataset.square !== expectFirst){
         buildMpBoard();
       }
       renderMpBoard();
@@ -1449,7 +1463,11 @@ async function refreshGame(){
       showMpResult(game.status, game.winner_id, game.ending_type);
     }
   } catch (e){
+    mpPollErrors += 1;
     document.getElementById('mp-turn').textContent = `Couldn't load: ${e.message}`;
+    // After 5 consecutive failures, stop hammering the server. User can
+    // hit "Back to lobby" to reset state.
+    if (mpPollErrors >= 5) stopGamePoll();
   }
 }
 function startGamePoll(){
