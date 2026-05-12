@@ -997,16 +997,25 @@ bootstrapAuth();
 // Uses HTTP polling at 2s — see lib/online-routes.js header.
 // =======================================================
 let onlineModalOpen = false;
-let mpScreenOpen = false;
+let mpScreenOpen = false;       // true while in an online game (used to gate other polls)
 let currentGameId = null;
 let mpChess = null;             // chess.js instance mirroring server FEN
 let mpMyColor = null;           // 'w' | 'b'
-let mpSelectedSquare = null;
+let mpSelectedSquare = null;    // (legacy 2D board — unused in AR mode)
 let mpLastVersion = -1;         // server num_moves we've rendered
 let mpLastMove = null;          // {from,to} for highlight
 let mpGameOver = false;
 let mpPollTimer = null;
 let mpPollErrors = 0;
+let mpWhiteName = '';
+let mpBlackName = '';
+let mpInFlightMove = false;     // true while postMove is pending — blocks poll clobber
+// Drives which chess state the AR scene reads from: 'single' (vs computer)
+// or 'online' (vs another user). Single-player by default so the existing
+// AR + AI flow is unchanged. Flipped to 'online' inside enterGame().
+let gameMode = 'single';
+function activeChess(){ return gameMode === 'online' ? mpChess : chess; }
+function activeColor(){ return gameMode === 'online' ? mpMyColor : playerColor; }
 let pollTimers = { incoming: null, outgoing: null, search: null, heartbeat: null, bg: null };
 let lastIncomingIds = new Set(); // for popup dedupe
 let dismissedChallenges = new Set();
@@ -1250,36 +1259,95 @@ const PIECE_GLYPH = {
   b: { k:'♚', q:'♛', r:'♜', b:'♝', n:'♞', p:'♟' }
 };
 
-function enterGame(gameId){
+// Enter an online game. Closes the splash + modals and routes everything
+// through the AR scene — the board only appears once the camera is on the
+// marker, just like the single-player flow.
+async function enterGame(gameId){
   currentGameId = gameId;
   mpScreenOpen = true;
   mpGameOver = false;
-  mpSelectedSquare = null;
+  selectedSquare = null;
+  legalDestinations = [];
   mpLastVersion = -1;
   mpLastMove = null;
-  mpMyColor = null;       // reset; refreshGame discovers it from server
+  mpMyColor = null;
   mpPollErrors = 0;
+  mpInFlightMove = false;
+  busy = false;
   mpChess = new Chess();
-  document.getElementById('mp-screen').classList.add('show');
-  document.getElementById('mp-result').classList.remove('show');
-  document.getElementById('mp-result').innerHTML = '';
-  document.getElementById('mp-board').innerHTML = '';  // let refreshGame rebuild with correct orientation
-  refreshGame();
-  startGamePoll();
-}
-function leaveGame(){
-  mpScreenOpen = false;
-  currentGameId = null;
-  stopGamePoll();
+
+  // Make sure the (now-unused) 2D screen stays hidden, and clear splash/modals.
   document.getElementById('mp-screen').classList.remove('show');
+  closeModal('online-modal');
+  onlineModalOpen = false;
+  closeModal('login-modal');
+  closeModal('register-modal');
+  closeModal('profile-modal');
+  closeModal('leaderboard-modal');
+  document.getElementById('challenge-popup').classList.remove('show');
+  splash.style.display = 'none';
+  gameoverEl.classList.remove('show');
+
+  // Pull initial state so we know our color before placing AR pieces.
+  let game, moves;
+  try {
+    ({ game, moves } = await getGame(gameId));
+  } catch (e){
+    toast('Failed to load game: ' + e.message, 3000);
+    return;
+  }
+  mpMyColor = currentUser && game.white_player_id === currentUser.id ? 'w'
+            : currentUser && game.black_player_id === currentUser.id ? 'b'
+            : null;
+  if (!mpMyColor){
+    toast('You are not a player in this game', 3000);
+    return;
+  }
+  mpChess.load(game.fen);
+  mpLastVersion = game.version;
+  mpWhiteName = game.white_username;
+  mpBlackName = game.black_username;
+  if (moves && moves.length){
+    const last = moves[moves.length - 1];
+    mpLastMove = { from: last.from_square, to: last.to_square };
+  }
+
+  // Switch the AR scene's state source to the online game.
+  gameMode = 'online';
+  playerColor = mpMyColor;         // drives AR board orientation
+  applyOnlineHud();
+
+  // Start AR if not running yet (user came straight from the splash to a
+  // challenge). Otherwise reuse the scene and re-skin it with online pieces.
+  if (!mindarThree){
+    startAR();
+  } else {
+    rebuildPieces();
+    updateStatus();
+  }
+
+  startGamePoll();
+
+  // Already-terminal game (e.g. opponent resigned before we entered) — surface immediately.
+  if (game.status && game.status !== 'active'){
+    showGameOverOnline(game.status, game.winner_id, game.ending_type);
+  }
 }
-document.getElementById('mp-leave').addEventListener('click', async () => {
-  if (!currentGameId) return leaveGame();
-  if (mpGameOver) return leaveGame();
-  if (!confirm('Resign this game?')) return;
-  try { await resignGame(currentGameId); } catch (e){ toast(e.message); }
-  // The next poll will surface the resign result; user can still see it.
-});
+
+// Tear down online state and return to a fresh single-player AR game.
+function leaveOnlineGame(){
+  stopGamePoll();
+  mpScreenOpen = false;
+  mpGameOver = false;
+  currentGameId = null;
+  mpChess = null;
+  mpMyColor = null;
+  gameMode = 'single';
+  applyOnlineHud();
+  // Reset the AR board to a fresh single-player game. The user can choose
+  // to play vs computer, or open Online again from the HUD.
+  if (mindarThree) resetGame();
+}
 
 function buildMpBoard(){
   const board = document.getElementById('mp-board');
@@ -1426,49 +1494,138 @@ function showMpResult(status, winnerId, endingType){
 
 async function refreshGame(){
   if (!currentGameId) return;
+  // Don't overwrite local state while we have a move in flight — postMove
+  // will reconcile against the server response itself.
+  if (mpInFlightMove) return;
   try {
     const { game, moves } = await getGame(currentGameId);
     mpPollErrors = 0;
-    // Identify my color from the player IDs.
+    mpWhiteName = game.white_username;
+    mpBlackName = game.black_username;
     if (currentUser){
       mpMyColor = game.white_player_id === currentUser.id ? 'w'
                 : game.black_player_id === currentUser.id ? 'b' : null;
     }
-    document.getElementById('mp-p-white').querySelector('.who').textContent = game.white_username;
-    document.getElementById('mp-p-black').querySelector('.who').textContent = game.black_username;
 
     // Re-render only when the server has advanced past us. Skipping unchanged
-    // versions keeps the UI from clobbering an in-flight move.
+    // versions keeps the UI from clobbering an in-flight tap.
     if (game.version !== mpLastVersion){
       mpChess.load(game.fen);
-      // Highlight whichever move the server thinks was last — so an opponent's
-      // move is shown after we poll for it, not just our own from postMove.
       if (moves && moves.length){
         const last = moves[moves.length - 1];
         mpLastMove = { from: last.from_square, to: last.to_square };
+        // Light AR highlight on opponent's most-recent move.
+        if (gameMode === 'online' && highlightMeshes[last.to_square]){
+          flashSquare(last.from_square, 0xd4a574);
+          flashSquare(last.to_square,   0xd4a574);
+        }
       }
       mpLastVersion = game.version;
-      // Rebuild board orientation now that mpMyColor is known, or if perspective changed.
-      const board = document.getElementById('mp-board');
-      const expectFirst = mpMyColor === 'b' ? 'h1' : 'a8';
-      if (!board.children.length ||
-          !board.firstChild.dataset.square ||
-          board.firstChild.dataset.square !== expectFirst){
-        buildMpBoard();
+      if (gameMode === 'online' && innerBoard){
+        rebuildPieces();
       }
-      renderMpBoard();
+      updateStatus();
     }
-    updateMpTurn(game.turn);
+    applyOnlineHud();
     if (game.status && game.status !== 'active' && !mpGameOver){
-      showMpResult(game.status, game.winner_id, game.ending_type);
+      showGameOverOnline(game.status, game.winner_id, game.ending_type);
     }
   } catch (e){
     mpPollErrors += 1;
-    document.getElementById('mp-turn').textContent = `Couldn't load: ${e.message}`;
-    // After 5 consecutive failures, stop hammering the server. User can
-    // hit "Back to lobby" to reset state.
     if (mpPollErrors >= 5) stopGamePoll();
   }
+}
+
+// Update the HUD status text + reset/resign button for the current mode.
+function applyOnlineHud(){
+  const resetBtn = document.getElementById('reset-btn');
+  if (!resetBtn) return;
+  if (gameMode === 'online'){
+    resetBtn.textContent = mpGameOver ? '↩ Back' : '✕ Resign';
+  } else {
+    resetBtn.textContent = '↻ Reset';
+  }
+}
+
+// Optimistic local move: animate immediately, then confirm with the server.
+// If the server rejects, undo the local move.
+async function submitOnlineMove(from, to){
+  if (mpInFlightMove) return;
+  const moveObj = mpChess.move({ from, to, promotion: 'q' });
+  if (!moveObj){
+    flashIllegal(to);
+    return;
+  }
+  // Reserve the next version slot so background polls don't clobber us
+  // mid-flight.
+  const optimisticVersion = mpLastVersion + 1;
+  mpLastVersion = optimisticVersion;
+  mpLastMove = { from, to };
+  mpInFlightMove = true;
+  animateMove(from, to, moveObj);
+  try {
+    const res = await postMove(currentGameId, from, to, moveObj.promotion || 'q');
+    mpLastVersion = res.version;
+    if (res.status && res.status !== 'active'){
+      showGameOverOnline(res.status, res.winner_id, res.ending_type);
+    } else {
+      updateStatus();
+    }
+  } catch (e){
+    // Roll back the optimistic local move and rebuild the AR scene from truth.
+    mpChess.undo();
+    mpLastVersion = optimisticVersion - 1;
+    mpLastMove = null;
+    rebuildPieces();
+    flashIllegal(to);
+    toast(e.message || 'Server rejected move', 2400);
+  } finally {
+    mpInFlightMove = false;
+  }
+}
+
+// Brief highlight overlay on an AR square — used to mark the opponent's last move.
+function flashSquare(square, colorHex){
+  const hl = highlightMeshes && highlightMeshes[square];
+  if (!hl) return;
+  hl.material.color.set(colorHex);
+  hl.material.opacity = 0.55;
+  const start = performance.now();
+  const fade = () => {
+    const t = (performance.now() - start) / 1100;
+    hl.material.opacity = Math.max(0, 0.55 * (1 - t));
+    if (t < 1) requestAnimationFrame(fade);
+  };
+  fade();
+}
+
+// Online game-over overlay. Reuses the existing single-player overlay
+// element but with online-aware copy and a "Back to lobby" button.
+function showGameOverOnline(status, winnerId, endingType){
+  if (mpGameOver) return;
+  mpGameOver = true;
+  stopGamePoll();
+  const meIsWinner = winnerId === (currentUser && currentUser.id);
+  let title = 'Game over', sub = '';
+  if (status === 'checkmate'){
+    title = 'Checkmate';
+    sub = meIsWinner ? 'You win' : 'You lose';
+  } else if (status === 'resigned'){
+    title = meIsWinner ? 'Opponent resigned' : 'You resigned';
+    sub = meIsWinner ? 'You win' : '';
+  } else if (status === 'stalemate'){
+    title = 'Stalemate'; sub = 'Draw';
+  } else if (status === 'draw'){
+    title = 'Draw'; sub = endingType || '';
+  } else {
+    title = 'Game ' + status;
+  }
+  gameoverText.textContent = title;
+  gameoverSub.textContent = sub;
+  const btn = document.getElementById('gameover-btn');
+  if (btn) btn.textContent = 'Back to lobby';
+  gameoverEl.classList.add('show');
+  applyOnlineHud();
 }
 function startGamePoll(){
   stopGamePoll();
@@ -1558,10 +1715,22 @@ document.querySelectorAll('.colorpick button').forEach(btn => {
   });
 });
 
-document.getElementById('reset-btn').onclick = () => resetGame();
+document.getElementById('reset-btn').onclick = async () => {
+  if (gameMode === 'online'){
+    if (mpGameOver){ leaveOnlineGame(); return; }
+    if (!confirm('Resign this game?')) return;
+    try { await resignGame(currentGameId); }
+    catch (e){ toast(e.message || 'Resign failed'); }
+    // The next poll picks up the server-side resigned state and triggers
+    // showGameOverOnline. No need to refresh by hand.
+  } else {
+    resetGame();
+  }
+};
 document.getElementById('gameover-btn').onclick = () => {
   gameoverEl.classList.remove('show');
-  resetGame();
+  if (gameMode === 'online') leaveOnlineGame();
+  else resetGame();
 };
 
 function resetGame(){
@@ -1572,10 +1741,13 @@ function resetGame(){
   // Reset match-recording state for the new game.
   gameStartTime = Date.now();
   matchRecorded = false;
+  const btn = document.getElementById('gameover-btn');
+  if (btn) btn.textContent = 'Play again';
+  applyOnlineHud();
   rebuildPieces();
   clearHighlights();
   updateStatus();
-  if (chess.turn() !== playerColor) setTimeout(aiMove, 600);
+  if (gameMode === 'single' && chess.turn() !== playerColor) setTimeout(aiMove, 600);
 }
 
 // =======================================================
@@ -1790,11 +1962,12 @@ function makePieceMesh(type, color){
 }
 
 function rebuildPieces(){
+  if (!innerBoard) return;
   // Remove existing
   Object.values(pieceMeshes).forEach(m => innerBoard.remove(m));
   for (const k in pieceMeshes) delete pieceMeshes[k];
 
-  const board = chess.board(); // 8x8 array, index 0 = rank 8
+  const board = activeChess().board(); // 8x8 array, index 0 = rank 8
   for (let rIdx = 0; rIdx < 8; rIdx++){
     for (let fIdx = 0; fIdx < 8; fIdx++){
       const cell = board[rIdx][fIdx];
@@ -1806,7 +1979,7 @@ function rebuildPieces(){
   // Flip board for player perspective. With the +90° X rotation on the parent group,
   // the natural orientation puts black at the bottom of the camera view, so White
   // needs the 180° flip to put their pieces in front of them.
-  innerBoard.rotation.y = playerColor === 'w' ? Math.PI : 0;
+  innerBoard.rotation.y = activeColor() === 'w' ? Math.PI : 0;
 }
 
 function placePiece(sq, type, color){
@@ -1828,7 +2001,7 @@ function clearHighlights(){
 }
 function showLegalMoves(from){
   clearHighlights();
-  const moves = chess.moves({ square: from, verbose: true });
+  const moves = activeChess().moves({ square: from, verbose: true });
   legalDestinations = moves.map(m => m.to);
   // selected square — yellow
   highlightMeshes[from].material.color.set(0xf9d949);
@@ -1867,9 +2040,10 @@ function onTap(ev){
   if (now - lastTapTime < 400) return;
   lastTapTime = now;
 
-  if (busy) return;
-  if (chess.turn() !== playerColor) return;
-  if (chess.isGameOver()) return;
+  if (busy || mpInFlightMove) return;
+  if (activeChess().turn() !== activeColor()) return;
+  if (activeChess().isGameOver()) return;
+  if (gameMode === 'online' && mpGameOver) return;
 
   // Get x,y from either touch or mouse event
   let clientX, clientY;
@@ -1908,24 +2082,32 @@ function onTap(ev){
 }
 
 function handleSquareTap(sq){
-  const piece = chess.get(sq);
+  const c = activeChess();
+  const pc = activeColor();
+  const piece = c.get(sq);
 
   if (selectedSquare){
     // Trying to move
     if (legalDestinations.includes(sq)){
-      // Make the move (auto-promote to queen)
-      const move = chess.move({ from: selectedSquare, to: sq, promotion: 'q' });
-      animateMove(selectedSquare, sq, move);
+      const from = selectedSquare;
       selectedSquare = null;
       legalDestinations = [];
       clearHighlights();
-      updateStatus();
-      if (!chess.isGameOver()) setTimeout(aiMove, 500);
-      else showGameOver();
+      if (gameMode === 'online'){
+        // Server-authoritative: animate locally + post; rollback on rejection.
+        submitOnlineMove(from, sq);
+      } else {
+        // Single-player: move local, animate, schedule AI reply.
+        const move = chess.move({ from, to: sq, promotion: 'q' });
+        animateMove(from, sq, move);
+        updateStatus();
+        if (!chess.isGameOver()) setTimeout(aiMove, 500);
+        else showGameOver();
+      }
       return;
     }
     // Tapped own piece → reselect
-    if (piece && piece.color === playerColor){
+    if (piece && piece.color === pc){
       selectedSquare = sq;
       showLegalMoves(sq);
       return;
@@ -1938,7 +2120,7 @@ function handleSquareTap(sq){
   }
 
   // No selection yet
-  if (piece && piece.color === playerColor){
+  if (piece && piece.color === pc){
     selectedSquare = sq;
     showLegalMoves(sq);
   } else if (piece){
@@ -2134,6 +2316,9 @@ function chooseAIMove(){
 }
 
 function aiMove(){
+  // Hard gate: AR scene may be running an online game by the time a
+  // previously-scheduled setTimeout(aiMove) fires.
+  if (gameMode !== 'single') return;
   if (chess.isGameOver()){ showGameOver(); return; }
   if (chess.turn() === playerColor) return;
   busy = true;
@@ -2154,14 +2339,25 @@ function aiMove(){
 // STATUS / GAME OVER
 // =======================================================
 function updateStatus(){
-  if (chess.isGameOver()) return;
-  const turn = chess.turn();
-  const who = turn === playerColor ? 'Your move' : 'AI move';
-  const check = chess.inCheck() ? ' · <span style="color:var(--danger)">check</span>' : '';
+  const c = activeChess();
+  if (c.isGameOver()) return;
+  const turn = c.turn();
+  let who;
+  if (gameMode === 'online'){
+    const opp = mpMyColor === 'w' ? mpBlackName : mpWhiteName;
+    who = turn === mpMyColor ? 'Your move' : "Opponent's move";
+    if (opp) who += ` · @${escapeHtml(opp)}`;
+  } else {
+    who = turn === playerColor ? 'Your move' : 'AI move';
+  }
+  const check = c.inCheck() ? ' · <span style="color:var(--danger)">check</span>' : '';
   statusEl.innerHTML = `<span class="turn">${who}</span>${check}`;
 }
 
 function showGameOver(){
+  // Online terminal states are surfaced by showGameOverOnline (server-driven).
+  // This function only handles the single-player vs computer flow.
+  if (gameMode === 'online') return;
   let title = 'Game Over', sub = '';
   if (chess.isCheckmate()){
     const winner = chess.turn() === playerColor ? 'AI wins' : 'You win';
