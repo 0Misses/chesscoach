@@ -33,6 +33,7 @@
     font-family:'Playfair Display', Georgia, serif;
     font-size:clamp(36px,9vw,64px);
     font-weight:900;letter-spacing:-.02em;line-height:.95;
+    position:relative;z-index:2;
   }
   #splash h1 .amp{color:var(--accent);font-style:italic;font-weight:400;}
   #splash p{
@@ -40,6 +41,7 @@
     max-width:32ch;opacity:.78;line-height:1.5;
     font-family:'Inter','Helvetica Neue',sans-serif;
     font-weight:300;
+    position:relative;z-index:2;
   }
   #splash-user-panel{
     display:none;flex-direction:column;align-items:center;gap:12px;
@@ -48,6 +50,7 @@
   #ar-setup{
     display:flex;flex-direction:column;align-items:center;gap:12px;
     margin-top:8px;width:100%;
+    position:relative;z-index:1;
   }
   #ar-setup .hint{margin-top:10px;}
   #splash-guest-nav.row{margin-top:4px;}
@@ -74,8 +77,14 @@
     font-size:13px;cursor:pointer;font-family:'Inter',sans-serif;
   }
 
-  /* ---------- AR scene ---------- */
-  #ar-container{position:fixed;inset:0;z-index:1;}
+  /* ---------- AR scene ----------
+     Full-viewport layer: keep pointer-events off until splash is gone so
+     WebKit/Safari compositing cannot steal taps meant for Login / Register. */
+  #ar-container{
+    position:fixed;inset:0;z-index:1;
+    pointer-events:none;
+  }
+  #ar-container.ar-receiving-input{pointer-events:auto;}
   #ar-container video,#ar-container canvas{
     position:absolute;top:0;left:0;width:100%;height:100%;
   }
@@ -104,6 +113,22 @@
     transition:opacity .4s ease;
   }
   #scan-prompt.hidden{opacity:0;pointer-events:none;}
+  /* Move replay (AR) */
+  #replay-bar{
+    position:fixed;bottom:100px;left:50%;transform:translateX(-50%);
+    z-index:55;display:none;align-items:center;gap:8px;
+    background:rgba(10,10,15,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(212,165,116,.3);border-radius:999px;
+    padding:8px 14px;font-family:'Inter',sans-serif;
+    pointer-events:auto;
+  }
+  #replay-bar .replay-btn{
+    background:none;border:none;color:var(--ink);
+    font:inherit;font-size:13px;font-weight:600;cursor:pointer;padding:6px 10px;
+  }
+  #replay-bar .replay-btn:hover:not(:disabled){color:var(--accent);}
+  #replay-bar .replay-btn:disabled{opacity:.35;cursor:not-allowed;}
+  #replay-counter{font-size:12px;opacity:.88;min-width:8.5em;text-align:center;letter-spacing:.03em;}
   #reset-btn{
     background:none;border:none;color:var(--ink);
     font-family:inherit;font-size:13px;cursor:pointer;
@@ -168,9 +193,11 @@
      User system: splash auth strip, modals, profile, leaderboard
      ========================================================= */
   /* Auth strip on splash */
+  /* Auth + title above color picker if flex layout ever overlaps on short screens */
   #auth-strip{
     display:flex;flex-direction:column;align-items:center;gap:10px;
     margin-top:4px;font-family:'Inter',sans-serif;font-size:13px;
+    position:relative;z-index:2;
   }
   #auth-strip .who{opacity:.85;}
   #auth-strip .who strong{color:var(--accent);font-weight:700;}
@@ -650,6 +677,12 @@
   </div>
 </div>
 <div id="scan-prompt" class="hidden">Point camera at marker</div>
+<div id="replay-bar" aria-label="Move replay">
+  <button type="button" class="replay-btn" id="replay-prev" title="Previous move">◀</button>
+  <span id="replay-counter">0 / 0</span>
+  <button type="button" class="replay-btn" id="replay-next" title="Next move">▶</button>
+  <button type="button" class="replay-btn" id="replay-live" title="Jump to current position">Live</button>
+</div>
 
 <!-- Toast -->
 <div id="toast"></div>
@@ -743,6 +776,11 @@ const flash = document.getElementById('flash');
 const gameoverEl = document.getElementById('gameover');
 const gameoverText = document.getElementById('gameover-text');
 const gameoverSub = document.getElementById('gameover-sub');
+
+function enableArContainerInput(){
+  const el = document.getElementById('ar-container');
+  if (el) el.classList.add('ar-receiving-input');
+}
 
 document.getElementById('marker-link').onclick = () =>
   document.getElementById('marker-modal').classList.add('show');
@@ -1065,12 +1103,96 @@ let mpPollErrors = 0;
 let mpWhiteName = '';
 let mpBlackName = '';
 let mpInFlightMove = false;     // true while postMove is pending — blocks poll clobber
+/** SAN list from server (online); mpChess.load(fen) clears .history(), so replay uses this). */
+let mpReplaySans = [];
+function syncReplaySansFromMoves(moves){
+  mpReplaySans = (moves || []).map(m => m.san).filter(Boolean);
+}
 // Drives which chess state the AR scene reads from: 'single' (vs computer)
 // or 'online' (vs another user). Single-player by default so the existing
 // AR + AI flow is unchanged. Flipped to 'online' inside enterGame().
 let gameMode = 'single';
 function activeChess(){ return gameMode === 'online' ? mpChess : chess; }
 function activeColor(){ return gameMode === 'online' ? mpMyColor : playerColor; }
+
+/** AR move replay: -1 = show live position; 0..n-1 = after that many half-moves. */
+let arReplayPly = -1;
+function livePlyCount(){
+  if (gameMode === 'online') return mpReplaySans.length;
+  const g = activeChess();
+  return g ? g.history().length : 0;
+}
+function clampArReplayPly(){
+  const n = livePlyCount();
+  if (n === 0) arReplayPly = -1;
+  else if (arReplayPly >= n) arReplayPly = -1;
+}
+function isArReplayBrowsing(){
+  const n = livePlyCount();
+  return n > 0 && arReplayPly >= 0 && arReplayPly < n;
+}
+/** Position shown on the AR board (may trail live game while reviewing). */
+function chessForArBoard(){
+  const live = activeChess();
+  if (!live) return chess;
+  if (gameMode === 'online'){
+    const n = mpReplaySans.length;
+    if (arReplayPly < 0 || arReplayPly >= n) return live;
+    const c = new Chess();
+    for (let i = 0; i < arReplayPly; i++) c.move(mpReplaySans[i]);
+    return c;
+  }
+  const h = live.history();
+  const n = h.length;
+  if (arReplayPly < 0 || arReplayPly >= n) return live;
+  const c = new Chess();
+  for (let i = 0; i < arReplayPly; i++) c.move(h[i]);
+  return c;
+}
+function finishReplayNavigation(){
+  selectedSquare = null;
+  legalDestinations = [];
+  clearHighlights();
+  rebuildPieces();
+  updateStatus();
+}
+function replayGoLive(){
+  arReplayPly = -1;
+  finishReplayNavigation();
+}
+function replayPrev(){
+  const n = livePlyCount();
+  if (!n) return;
+  if (arReplayPly < 0) arReplayPly = n;
+  arReplayPly = Math.max(0, arReplayPly - 1);
+  finishReplayNavigation();
+}
+function replayNext(){
+  const n = livePlyCount();
+  if (!n || arReplayPly < 0) return;
+  arReplayPly += 1;
+  if (arReplayPly >= n) arReplayPly = -1;
+  finishReplayNavigation();
+}
+function updateReplayBar(){
+  const bar = document.getElementById('replay-bar');
+  const prev = document.getElementById('replay-prev');
+  const next = document.getElementById('replay-next');
+  const live = document.getElementById('replay-live');
+  const label = document.getElementById('replay-counter');
+  if (!bar || !prev || !next || !live || !label) return;
+  const n = livePlyCount();
+  const arOn = !!(mindarThree && hud.style.display !== 'none');
+  const show = arOn && n > 0;
+  bar.style.display = show ? 'flex' : 'none';
+  if (!show) return;
+  const atLive = arReplayPly < 0 || arReplayPly >= n;
+  const shown = atLive ? n : arReplayPly;
+  label.textContent = atLive ? `${n} / ${n} · live` : `${shown} / ${n}`;
+  prev.disabled = shown <= 0;
+  next.disabled = atLive;
+  live.disabled = atLive;
+}
 let pollTimers = { incoming: null, outgoing: null, search: null, heartbeat: null, bg: null };
 let lastIncomingIds = new Set(); // for popup dedupe
 let dismissedChallenges = new Set();
@@ -1322,6 +1444,7 @@ const PIECE_GLYPH = {
 // marker, just like the single-player flow.
 async function enterGame(gameId){
   currentGameId = gameId;
+  arReplayPly = -1;
   mpScreenOpen = true;
   mpGameOver = false;
   selectedSquare = null;
@@ -1354,6 +1477,7 @@ async function enterGame(gameId){
     toast('Failed to load game: ' + e.message, 3000);
     return;
   }
+  syncReplaySansFromMoves(moves);
   mpMyColor = currentUser && game.white_player_id === currentUser.id ? 'w'
             : currentUser && game.black_player_id === currentUser.id ? 'b'
             : null;
@@ -1364,6 +1488,7 @@ async function enterGame(gameId){
 
   awaitingBotColor = false;
   splash.style.display = 'none';
+  enableArContainerInput();
   mpChess.load(game.fen);
   mpLastVersion = game.version;
   mpWhiteName = game.white_username;
@@ -1402,6 +1527,7 @@ function leaveOnlineGame(){
   mpGameOver = false;
   currentGameId = null;
   mpChess = null;
+  mpReplaySans = [];
   mpMyColor = null;
   gameMode = 'single';
   applyOnlineHud();
@@ -1561,6 +1687,7 @@ async function refreshGame(){
   try {
     const { game, moves } = await getGame(currentGameId);
     mpPollErrors = 0;
+    syncReplaySansFromMoves(moves);
     mpWhiteName = game.white_username;
     mpBlackName = game.black_username;
     if (currentUser){
@@ -1587,6 +1714,7 @@ async function refreshGame(){
       }
       updateStatus();
     }
+    updateReplayBar();
     applyOnlineHud();
     if (game.status && game.status !== 'active' && !mpGameOver){
       showGameOverOnline(game.status, game.winner_id, game.ending_type);
@@ -1612,11 +1740,16 @@ function applyOnlineHud(){
 // If the server rejects, undo the local move.
 async function submitOnlineMove(from, to){
   if (mpInFlightMove) return;
+  if (isArReplayBrowsing()){
+    toast('Leave replay (tap Live) to move.', 2400);
+    return;
+  }
   const moveObj = mpChess.move({ from, to, promotion: 'q' });
   if (!moveObj){
     flashIllegal(to);
     return;
   }
+  mpReplaySans.push(moveObj.san);
   // Reserve the next version slot so background polls don't clobber us
   // mid-flight.
   const optimisticVersion = mpLastVersion + 1;
@@ -1635,6 +1768,7 @@ async function submitOnlineMove(from, to){
   } catch (e){
     // Roll back the optimistic local move and rebuild the AR scene from truth.
     mpChess.undo();
+    mpReplaySans.pop();
     mpLastVersion = optimisticVersion - 1;
     mpLastMove = null;
     rebuildPieces();
@@ -1758,10 +1892,10 @@ let busy = false; // while AI thinks or animation plays
 // =======================================================
 let mindarThree, scene, camera, renderer, anchor, boardGroup, innerBoard;
 const SQ = 0.11;          // square size (in world units, marker = 1 wide)
-const BOARD_OFFSET = -SQ * 4 + SQ / 2; // a1 corner
-/** Map file index 0=a..7=h to X so board matches standard chess layout in AR. */
+const BOARD_OFFSET = -SQ * 4 + SQ / 2; // a1 corner (low X); h-file grows toward +X
+/** File index 0=a..7=h → board X. Linear mapping for all players; see rebuildPieces for white's scale.x flip. */
 function fileIndexToBoardX(fileIdx){
-  return BOARD_OFFSET + (7 - fileIdx) * SQ;
+  return BOARD_OFFSET + fileIdx * SQ;
 }
 
 const pieceMeshes = {}; // square -> mesh
@@ -1777,7 +1911,11 @@ document.querySelectorAll('#ar-setup .colorpick button').forEach(btn => {
     playerColor = btn.dataset.color;
     awaitingBotColor = false;
     splash.style.opacity = '0';
-    setTimeout(() => { splash.style.display = 'none'; startAR(); }, 600);
+    setTimeout(() => {
+      splash.style.display = 'none';
+      enableArContainerInput();
+      startAR();
+    }, 600);
   });
 });
 
@@ -1798,8 +1936,12 @@ document.getElementById('gameover-btn').onclick = () => {
   if (gameMode === 'online') leaveOnlineGame();
   else resetGame();
 };
+document.getElementById('replay-prev').onclick = replayPrev;
+document.getElementById('replay-next').onclick = replayNext;
+document.getElementById('replay-live').onclick = replayGoLive;
 
 function resetGame(){
+  arReplayPly = -1;
   chess = new Chess();
   selectedSquare = null;
   legalDestinations = [];
@@ -1896,7 +2038,7 @@ function buildBoard(){
   // Squares
   for (let r = 0; r < 8; r++){
     for (let f = 0; f < 8; f++){
-      const isLight = (r + f) % 2 === 0;
+      const isLight = (r + f) % 2 === 1; // a1 dark; d1 light, e1 dark; d8 dark, e8 light
       const color = isLight ? 0xe8d4a8 : 0x6b4423;
       const geo = new THREE.PlaneGeometry(SQ, SQ);
       const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5 });
@@ -2029,11 +2171,12 @@ function makePieceMesh(type, color){
 
 function rebuildPieces(){
   if (!innerBoard) return;
+  clampArReplayPly();
   // Remove existing
   Object.values(pieceMeshes).forEach(m => innerBoard.remove(m));
   for (const k in pieceMeshes) delete pieceMeshes[k];
 
-  const board = activeChess().board(); // 8x8 array, index 0 = rank 8
+  const board = chessForArBoard().board(); // 8x8 array, index 0 = rank 8
   for (let rIdx = 0; rIdx < 8; rIdx++){
     for (let fIdx = 0; fIdx < 8; fIdx++){
       const cell = board[rIdx][fIdx];
@@ -2044,8 +2187,12 @@ function rebuildPieces(){
   }
   // Flip board for player perspective. With the +90° X rotation on the parent group,
   // the natural orientation puts black at the bottom of the camera view, so White
-  // needs the 180° flip to put their pieces in front of them.
-  innerBoard.rotation.y = activeColor() === 'w' ? Math.PI : 0;
+  // needs the 180° Y flip to put their pieces in front. Linear file→X mapping keeps
+  // Q left of K for Black (no Y flip); White uses scale.x = -1 with Y=π so Q stays left of K.
+  const white = activeColor() === 'w';
+  innerBoard.scale.set(white ? -1 : 1, 1, 1);
+  innerBoard.rotation.y = white ? Math.PI : 0;
+  updateReplayBar();
 }
 
 function placePiece(sq, type, color){
@@ -2107,6 +2254,7 @@ function onTap(ev){
   lastTapTime = now;
 
   if (busy || mpInFlightMove) return;
+  if (isArReplayBrowsing()) return;
   if (activeChess().turn() !== activeColor()) return;
   if (activeChess().isGameOver()) return;
   if (gameMode === 'online' && mpGameOver) return;
@@ -2125,7 +2273,7 @@ function onTap(ev){
   }
 
   // Don't react to taps on HUD buttons etc.
-  if (ev.target && ev.target.closest && ev.target.closest('#hud, #gameover, #splash, #marker-modal')) return;
+  if (ev.target && ev.target.closest && ev.target.closest('#hud, #gameover, #splash, #marker-modal, #replay-bar')) return;
 
   // Use canvas size (full window)
   pointer.x = (clientX / window.innerWidth) * 2 - 1;
@@ -2167,6 +2315,7 @@ function handleSquareTap(sq){
         const move = chess.move({ from, to: sq, promotion: 'q' });
         animateMove(from, sq, move);
         updateStatus();
+        updateReplayBar();
         if (!chess.isGameOver()) setTimeout(aiMove, 500);
         else showGameOver();
       }
@@ -2243,10 +2392,11 @@ function animateMove(from, to, moveObj){
       if (moveObj.flags.includes('p') || moveObj.promotion){
         innerBoard.remove(mesh);
         delete pieceMeshes[to];
-        const newPiece = chess.get(to);
-        placePiece(to, newPiece.type, newPiece.color);
+        const src = activeChess().get(to);
+        if (src) placePiece(to, src.type, src.color);
       }
       busy = false;
+      updateReplayBar();
     }
   };
   requestAnimationFrame(step);
@@ -2385,6 +2535,7 @@ function aiMove(){
   // Hard gate: AR scene may be running an online game by the time a
   // previously-scheduled setTimeout(aiMove) fires.
   if (gameMode !== 'single') return;
+  if (isArReplayBrowsing()) return;
   if (chess.isGameOver()){ showGameOver(); return; }
   if (chess.turn() === playerColor) return;
   busy = true;
@@ -2406,6 +2557,11 @@ function aiMove(){
 // =======================================================
 function updateStatus(){
   const c = activeChess();
+  if (isArReplayBrowsing()){
+    const n = livePlyCount();
+    statusEl.innerHTML = `<span class="turn">Reviewing</span> · ply ${arReplayPly}/${n} · tap <strong>Live</strong> to continue`;
+    return;
+  }
   if (c.isGameOver()) return;
   const turn = c.turn();
   let who;
