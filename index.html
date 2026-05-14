@@ -41,7 +41,17 @@
     font-family:'Inter','Helvetica Neue',sans-serif;
     font-weight:300;
   }
-  .colorpick{display:flex;gap:14px;margin-top:8px;}
+  #splash-user-panel{
+    display:none;flex-direction:column;align-items:center;gap:12px;
+    width:100%;max-width:420px;margin-top:4px;
+  }
+  #ar-setup{
+    display:flex;flex-direction:column;align-items:center;gap:12px;
+    margin-top:8px;width:100%;
+  }
+  #ar-setup .hint{margin-top:10px;}
+  #splash-guest-nav.row{margin-top:4px;}
+  .colorpick{display:flex;gap:14px;margin-top:4px;}
   .colorpick button{
     width:96px;height:96px;border-radius:50%;border:2px solid #2a2530;
     cursor:pointer;font-family:inherit;font-size:18px;font-weight:700;
@@ -120,7 +130,7 @@
 
   /* ---------- Marker preview modal ---------- */
   #marker-modal{
-    position:fixed;inset:0;z-index:90;background:rgba(0,0,0,.92);
+    position:fixed;inset:0;z-index:110;background:rgba(0,0,0,.92);
     display:none;flex-direction:column;align-items:center;justify-content:center;
     padding:24px;gap:16px;
   }
@@ -178,9 +188,9 @@
   .btn-pill.primary{background:var(--accent);color:#1a1620;border-color:var(--accent);font-weight:700;}
   .btn-pill.primary:hover{background:#e0b687;}
 
-  /* Generic modal (login, register, profile, leaderboard) */
+  /* Generic modal (login, register, profile, leaderboard) — above #splash (100) */
   .modal{
-    position:fixed;inset:0;z-index:95;
+    position:fixed;inset:0;z-index:110;
     background:rgba(10,10,15,.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);
     display:none;flex-direction:column;align-items:center;justify-content:flex-start;
     padding:32px 20px;gap:18px;overflow-y:auto;
@@ -502,31 +512,41 @@
 <!-- Splash -->
 <div id="splash">
   <h1>A<span class="amp">R</span> Chess</h1>
-  <p>Play augmented-reality chess against a 1200-rated opponent. Choose your side.</p>
+  <p id="splash-lead">Augmented-reality chess vs a 1200-rated bot. Sign in for stats, or play as a guest below.</p>
 
-  <!-- Auth strip: shows login/register when guest, or username + logout when signed in. -->
   <div id="auth-strip">
     <div class="who" id="auth-who">Playing as <strong>guest</strong> — stats won't be saved.</div>
-    <div class="row" id="auth-buttons-guest">
+
+    <!-- Guest: account + leaderboard -->
+    <div class="row" id="splash-guest-nav">
       <button class="btn-pill primary" id="btn-show-login">Login</button>
       <button class="btn-pill" id="btn-show-register">Register</button>
-    </div>
-    <div class="row" id="auth-buttons-user" style="display:none;">
-      <button class="btn-pill" id="btn-show-profile">Profile</button>
-      <button class="btn-pill" id="btn-logout">Logout</button>
-    </div>
-    <div class="row">
-      <button class="btn-pill" id="btn-show-online">Online Play</button>
       <button class="btn-pill" id="btn-show-leaderboard-splash">Leaderboard</button>
+    </div>
+
+    <!-- Signed in: mode hub + profile -->
+    <div id="splash-user-panel">
+      <div class="row">
+        <button class="btn-pill primary" id="btn-hub-online">Play online</button>
+        <button class="btn-pill primary" id="btn-hub-bot">Play bot</button>
+        <button class="btn-pill" id="btn-hub-coaching">Coaching</button>
+      </div>
+      <div class="row">
+        <button class="btn-pill" id="btn-show-profile">Profile</button>
+        <button class="btn-pill" id="btn-logout">Logout</button>
+      </div>
     </div>
   </div>
 
-  <div class="colorpick">
-    <button class="white" data-color="w">White</button>
-    <button class="black" data-color="b">Black</button>
+  <div id="ar-setup">
+    <button type="button" class="btn-pill" id="btn-bot-back" style="display:none;">← Back to menu</button>
+    <div class="colorpick">
+      <button class="white" data-color="w">White</button>
+      <button class="black" data-color="b">Black</button>
+    </div>
+    <div class="hint">Camera + Marker Required</div>
+    <a id="marker-link">View / print AR marker →</a>
   </div>
-  <div class="hint">Camera + Marker Required</div>
-  <a id="marker-link">View / print AR marker →</a>
 </div>
 
 <!-- Login modal -->
@@ -595,6 +615,15 @@
     <div class="empty-msg">Loading…</div>
   </div>
   <div class="empty-msg" style="font-size:11px;">Minimum 3 games to qualify.</div>
+</div>
+
+<!-- Coaching (placeholder) -->
+<div id="coaching-modal" class="modal">
+  <button class="close-x" data-close="coaching-modal">×</button>
+  <h2>Coaching</h2>
+  <p class="empty-msg" style="max-width:420px;line-height:1.65;font-size:15px;">
+    Personalized lessons, puzzles, and opening drills will live here. This page is a placeholder for now.
+  </p>
 </div>
 
 <!-- Marker preview -->
@@ -736,6 +765,8 @@ const API_BASE = (window.AR_CHESS_API_BASE) ||
 const TOKEN_KEY = 'ar_chess_token';
 const USER_KEY = 'ar_chess_user';
 let currentUser = null;
+/** Signed-in splash: hide AR color pick until user taps "Play bot". */
+let awaitingBotColor = false;
 
 function getToken(){ return localStorage.getItem(TOKEN_KEY); }
 function setAuth(token, user){
@@ -773,8 +804,11 @@ function escapeHtml(s){
 }
 
 function refreshAuthUI(){
-  const guestBtns  = document.getElementById('auth-buttons-guest');
-  const userBtns   = document.getElementById('auth-buttons-user');
+  const guestNav   = document.getElementById('splash-guest-nav');
+  const userPanel  = document.getElementById('splash-user-panel');
+  const arSetup    = document.getElementById('ar-setup');
+  const btnBotBack = document.getElementById('btn-bot-back');
+  const splashLead = document.getElementById('splash-lead');
   const who        = document.getElementById('auth-who');
   const chip       = document.getElementById('user-chip');
   const hudLogin   = document.getElementById('hud-login');
@@ -782,18 +816,36 @@ function refreshAuthUI(){
   const hudLogout  = document.getElementById('hud-logout');
 
   if (currentUser){
-    guestBtns.style.display = 'none';
-    userBtns.style.display  = 'flex';
+    guestNav.style.display = 'none';
+    userPanel.style.display = 'flex';
+    if (arSetup){
+      arSetup.style.display = awaitingBotColor ? 'flex' : 'none';
+    }
+    if (btnBotBack){
+      btnBotBack.style.display = awaitingBotColor ? 'inline-block' : 'none';
+    }
     who.innerHTML = `Signed in as <strong>${escapeHtml(currentUser.username)}</strong>`;
+    if (splashLead){
+      splashLead.textContent = awaitingBotColor
+        ? 'Choose White or Black, then point your camera at the printed marker.'
+        : 'Pick how you want to play — AR bot uses the marker; online uses the same account.';
+    }
     chip.textContent = '@' + currentUser.username;
     chip.style.display = 'inline-block';
     hudLogin.style.display   = 'none';
     hudProfile.style.display = 'inline-block';
     hudLogout.style.display  = 'inline-block';
   } else {
-    guestBtns.style.display = 'flex';
-    userBtns.style.display  = 'none';
+    awaitingBotColor = false;
+    guestNav.style.display = 'flex';
+    userPanel.style.display = 'none';
+    if (arSetup) arSetup.style.display = 'flex';
+    if (btnBotBack) btnBotBack.style.display = 'none';
     who.innerHTML = `Playing as <strong>guest</strong> — stats won't be saved.`;
+    if (splashLead){
+      splashLead.textContent =
+        'Augmented-reality chess vs a 1200-rated bot. Sign in for stats, or choose a side below.';
+    }
     chip.style.display = 'none';
     hudLogin.style.display   = 'inline-block';
     hudProfile.style.display = 'none';
@@ -813,7 +865,10 @@ document.getElementById('btn-show-register').onclick        = () => { clearRegEr
 document.getElementById('btn-logout').onclick               = () => { clearAuth(); toast('Logged out'); };
 document.getElementById('btn-show-profile').onclick         = () => openProfile();
 document.getElementById('btn-show-leaderboard-splash').onclick = () => openLeaderboard();
-document.getElementById('btn-show-online').onclick           = () => openOnline();
+document.getElementById('btn-hub-online').onclick           = () => openOnline();
+document.getElementById('btn-hub-bot').onclick                = () => { awaitingBotColor = true; refreshAuthUI(); };
+document.getElementById('btn-hub-coaching').onclick         = () => openModal('coaching-modal');
+document.getElementById('btn-bot-back').onclick             = () => { awaitingBotColor = false; refreshAuthUI(); };
 document.getElementById('hud-online').onclick               = () => openOnline();
 document.getElementById('swap-to-register').onclick = () => { closeModal('login-modal');    clearRegErr();   openModal('register-modal'); };
 document.getElementById('swap-to-login').onclick    = () => { closeModal('register-modal'); clearLoginErr(); openModal('login-modal'); };
@@ -1045,6 +1100,9 @@ async function heartbeat(){
 // ---- Open / close the online modal ----
 function openOnline(){
   if (!currentUser){ openModal('login-modal'); return; }
+  awaitingBotColor = false;
+  closeModal('coaching-modal');
+  refreshAuthUI();
   openModal('online-modal');
   onlineModalOpen = true;
   document.getElementById('online-search-input').value = '';
@@ -1284,8 +1342,8 @@ async function enterGame(gameId){
   closeModal('register-modal');
   closeModal('profile-modal');
   closeModal('leaderboard-modal');
+  closeModal('coaching-modal');
   document.getElementById('challenge-popup').classList.remove('show');
-  splash.style.display = 'none';
   gameoverEl.classList.remove('show');
 
   // Pull initial state so we know our color before placing AR pieces.
@@ -1303,6 +1361,9 @@ async function enterGame(gameId){
     toast('You are not a player in this game', 3000);
     return;
   }
+
+  awaitingBotColor = false;
+  splash.style.display = 'none';
   mpChess.load(game.fen);
   mpLastVersion = game.version;
   mpWhiteName = game.white_username;
@@ -1698,6 +1759,10 @@ let busy = false; // while AI thinks or animation plays
 let mindarThree, scene, camera, renderer, anchor, boardGroup, innerBoard;
 const SQ = 0.11;          // square size (in world units, marker = 1 wide)
 const BOARD_OFFSET = -SQ * 4 + SQ / 2; // a1 corner
+/** Map file index 0=a..7=h to X so board matches standard chess layout in AR. */
+function fileIndexToBoardX(fileIdx){
+  return BOARD_OFFSET + (7 - fileIdx) * SQ;
+}
 
 const pieceMeshes = {}; // square -> mesh
 const squareMeshes = {}; // square -> { mesh, baseColor }
@@ -1707,9 +1772,10 @@ let raycaster, pointer;
 // =======================================================
 // COLOR PICKER → start
 // =======================================================
-document.querySelectorAll('.colorpick button').forEach(btn => {
+document.querySelectorAll('#ar-setup .colorpick button').forEach(btn => {
   btn.addEventListener('click', () => {
     playerColor = btn.dataset.color;
+    awaitingBotColor = false;
     splash.style.opacity = '0';
     setTimeout(() => { splash.style.display = 'none'; startAR(); }, 600);
   });
@@ -1836,7 +1902,7 @@ function buildBoard(){
       const mat = new THREE.MeshStandardMaterial({ color, roughness: 0.5 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.rotation.x = -Math.PI / 2;
-      mesh.position.set(BOARD_OFFSET + f * SQ, 0.001, BOARD_OFFSET + r * SQ);
+      mesh.position.set(fileIndexToBoardX(f), 0.001, BOARD_OFFSET + r * SQ);
       const square = squareName(f, r);
       mesh.userData.square = square;
       innerBoard.add(mesh);
@@ -1847,7 +1913,7 @@ function buildBoard(){
       const hlMat = new THREE.MeshBasicMaterial({ color: 0x5dd39e, transparent: true, opacity: 0, depthWrite: false });
       const hl = new THREE.Mesh(hlGeo, hlMat);
       hl.rotation.x = -Math.PI / 2;
-      hl.position.set(BOARD_OFFSET + f * SQ, 0.003, BOARD_OFFSET + r * SQ);
+      hl.position.set(fileIndexToBoardX(f), 0.003, BOARD_OFFSET + r * SQ);
       innerBoard.add(hl);
       highlightMeshes[square] = hl;
     }
@@ -1985,7 +2051,7 @@ function rebuildPieces(){
 function placePiece(sq, type, color){
   const mesh = makePieceMesh(type, color);
   const [f, r] = squareToFR(sq);
-  mesh.position.set(BOARD_OFFSET + f * SQ, 0.005, BOARD_OFFSET + r * SQ);
+  mesh.position.set(fileIndexToBoardX(f), 0.005, BOARD_OFFSET + r * SQ);
   mesh.userData.square = sq;
   innerBoard.add(mesh);
   pieceMeshes[sq] = mesh;
@@ -2156,8 +2222,8 @@ function animateMove(from, to, moveObj){
 
   const [f1, r1] = squareToFR(from);
   const [f2, r2] = squareToFR(to);
-  const start = { x: BOARD_OFFSET + f1 * SQ, z: BOARD_OFFSET + r1 * SQ };
-  const end   = { x: BOARD_OFFSET + f2 * SQ, z: BOARD_OFFSET + r2 * SQ };
+  const start = { x: fileIndexToBoardX(f1), z: BOARD_OFFSET + r1 * SQ };
+  const end   = { x: fileIndexToBoardX(f2), z: BOARD_OFFSET + r2 * SQ };
   const dur = 350;
   const t0 = performance.now();
   const step = () => {
