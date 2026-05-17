@@ -12,6 +12,10 @@
     --danger:#e8504a;
     --legal:#5dd39e;
     --selected:#f9d949;
+    /* Board theme (Classic default; overridden by applyTheme) */
+    --sq-light:#e8d4a8;
+    --sq-dark:#6b4423;
+    --sq-border:#6b4423;
   }
   *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
   html,body{
@@ -188,6 +192,60 @@
   @keyframes flashFade{
     0%{opacity:0;}15%{opacity:1;}100%{opacity:0;}
   }
+
+  /* ---------- Settings: floating FAB + theme picker ---------- */
+  #settings-fab{
+    position:fixed;right:16px;bottom:16px;z-index:120;
+    width:48px;height:48px;border-radius:50%;
+    background:rgba(10,10,15,.78);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);
+    border:1px solid rgba(212,165,116,.4);color:var(--ink);
+    font-size:22px;line-height:1;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    box-shadow:0 6px 20px rgba(0,0,0,.45);
+    transition:transform .2s ease, border-color .2s ease, color .2s ease;
+    font-family:inherit;
+  }
+  #settings-fab:hover{transform:rotate(45deg);color:var(--accent);border-color:var(--accent);}
+  #settings-modal{z-index:115;}
+  #settings-modal .section-label{
+    font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+    opacity:.6;margin:6px 0 -4px;align-self:flex-start;
+    width:100%;max-width:520px;
+  }
+  .theme-grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));
+    gap:12px;width:100%;max-width:520px;
+  }
+  .theme-card{
+    background:rgba(255,255,255,.04);
+    border:1px solid rgba(212,165,116,.18);
+    border-radius:12px;padding:10px;cursor:pointer;
+    display:flex;flex-direction:column;gap:8px;
+    transition:border-color .2s ease, background .2s ease, transform .15s ease;
+    font-family:inherit;color:var(--ink);text-align:left;
+  }
+  .theme-card:hover{border-color:rgba(212,165,116,.5);background:rgba(255,255,255,.06);}
+  .theme-card.selected{
+    border-color:var(--accent);background:rgba(212,165,116,.12);
+  }
+  .theme-card .swatch{
+    display:grid;grid-template-columns:1fr 1fr;width:100%;aspect-ratio:2/1;
+    border-radius:6px;overflow:hidden;
+    border:1px solid rgba(0,0,0,.3);
+  }
+  .theme-card .swatch .l{background:var(--c-light);}
+  .theme-card .swatch .d{background:var(--c-dark);}
+  .theme-card .name{
+    font-size:13px;font-weight:600;
+  }
+  .theme-card .desc{
+    font-size:11px;opacity:.6;letter-spacing:.04em;
+  }
+  .theme-card .check{
+    font-size:11px;color:var(--accent);font-weight:700;
+    letter-spacing:.12em;opacity:0;margin-top:-2px;
+  }
+  .theme-card.selected .check{opacity:1;}
 
   /* =========================================================
      User system: splash auth strip, modals, profile, leaderboard
@@ -454,7 +512,7 @@
   #mp-board{
     width:100%;height:100%;
     display:grid;grid-template-columns:repeat(8,1fr);grid-template-rows:repeat(8,1fr);
-    border:3px solid #6b4423;border-radius:6px;overflow:hidden;
+    border:3px solid var(--sq-border);border-radius:6px;overflow:hidden;
     box-shadow:0 10px 40px rgba(0,0,0,.55);
   }
   #mp-board .sq{
@@ -464,8 +522,8 @@
     position:relative;
     line-height:1;
   }
-  #mp-board .sq.light{background:#e8d4a8;color:#1a1620;}
-  #mp-board .sq.dark{background:#6b4423;color:#1a1620;}
+  #mp-board .sq.light{background:var(--sq-light);color:#1a1620;}
+  #mp-board .sq.dark{background:var(--sq-dark);color:#1a1620;}
   #mp-board .sq .pc{position:relative;z-index:2;text-shadow:0 1px 2px rgba(0,0,0,.25);}
   #mp-board .sq .pc.w{color:#fdfaf3;text-shadow:0 0 2px #000, 0 1px 3px rgba(0,0,0,.6);}
   #mp-board .sq .pc.b{color:#0c0a08;}
@@ -549,6 +607,7 @@
       <button class="btn-pill primary" id="btn-show-login">Login</button>
       <button class="btn-pill" id="btn-show-register">Register</button>
       <button class="btn-pill" id="btn-show-leaderboard-splash">Leaderboard</button>
+      <button class="btn-pill" data-open-settings>Settings</button>
     </div>
 
     <!-- Signed in: mode hub + profile -->
@@ -561,6 +620,7 @@
       <div class="row">
         <button class="btn-pill" id="btn-show-profile">Profile</button>
         <button class="btn-pill" id="btn-logout">Logout</button>
+        <button class="btn-pill" data-open-settings>Settings</button>
       </div>
     </div>
   </div>
@@ -653,6 +713,18 @@
   </p>
 </div>
 
+<!-- Settings modal -->
+<div id="settings-modal" class="modal">
+  <button class="close-x" data-close="settings-modal">×</button>
+  <h2>Settings</h2>
+  <div class="section-label">Board Theme</div>
+  <div class="theme-grid" id="theme-grid"><!-- populated by JS --></div>
+</div>
+
+<!-- Floating settings button (visible on splash, in-game, over modals) -->
+<button id="settings-fab" data-open-settings title="Settings" aria-label="Settings">⚙</button>
+
+
 <!-- Marker preview -->
 <div id="marker-modal">
   <p>Print this image, or display it on another screen. Point your camera at it once the game starts.</p>
@@ -673,6 +745,7 @@
     <button class="hud-btn" id="hud-online">Online</button>
     <button class="hud-btn" id="hud-leaderboard">Leaderboard</button>
     <button class="hud-btn" id="hud-logout" style="display:none;">Logout</button>
+    <button class="hud-btn" data-open-settings>Settings</button>
     <button id="reset-btn">↻ Reset</button>
   </div>
 </div>
@@ -896,6 +969,95 @@ function openModal(id){ document.getElementById(id).classList.add('show'); }
 function closeModal(id){ document.getElementById(id).classList.remove('show'); }
 document.querySelectorAll('.modal .close-x').forEach(b =>
   b.addEventListener('click', () => closeModal(b.dataset.close)));
+
+// ---------------------------------------------------------------
+// Settings: board theme picker (localStorage-persisted)
+// ---------------------------------------------------------------
+const THEMES = [
+  { id:'classic',  name:'Classic',  desc:'Original tan / brown', light:'#e8d4a8', dark:'#6b4423' },
+  { id:'forest',   name:'Forest',   desc:'Green',                light:'#eeeed2', dark:'#769656' },
+  { id:'ocean',    name:'Ocean',    desc:'Blue',                 light:'#dee3e6', dark:'#4f6f8c' },
+  { id:'midnight', name:'Midnight', desc:'Dark slate',           light:'#46546b', dark:'#1d2330' },
+  { id:'cherry',   name:'Cherry',   desc:'Rose / burgundy',      light:'#f0d9d9', dark:'#7a2a3f' },
+  { id:'ice',      name:'Ice',      desc:'Pale blue',            light:'#eaf2f8', dark:'#a8c4d4' }
+];
+const THEME_KEY = 'chesscoach.theme';
+let currentThemeId = 'classic';
+
+function getTheme(id){ return THEMES.find(t => t.id === id) || THEMES[0]; }
+
+function applyTheme(id){
+  const t = getTheme(id);
+  currentThemeId = t.id;
+  // CSS variables drive the 2D board (#mp-board light/dark/border).
+  const root = document.documentElement.style;
+  root.setProperty('--sq-light', t.light);
+  root.setProperty('--sq-dark', t.dark);
+  root.setProperty('--sq-border', t.dark);
+  // 3D AR squares — re-color if the board has been built.
+  // Wrapped because `squareMeshes` is declared later in this module; calling
+  // applyTheme before that line would otherwise hit a TDZ ReferenceError.
+  let sm = null;
+  try { sm = squareMeshes; } catch (_) { /* not declared yet */ }
+  if (sm){
+    const lightHex = parseInt(t.light.slice(1), 16);
+    const darkHex  = parseInt(t.dark.slice(1), 16);
+    for (const sq in sm){
+      const entry = sm[sq];
+      if (!entry || !entry.mesh) continue;
+      const f = sq.charCodeAt(0) - 97;
+      const r = parseInt(sq[1], 10) - 1;
+      const isLight = (r + f) % 2 === 0;
+      const hex = isLight ? lightHex : darkHex;
+      entry.mesh.material.color.setHex(hex);
+      entry.baseColor = hex;
+    }
+  }
+  // Persist.
+  try { localStorage.setItem(THEME_KEY, t.id); } catch(_) {}
+  // Update selected state in picker (if open).
+  document.querySelectorAll('.theme-card').forEach(card => {
+    card.classList.toggle('selected', card.dataset.theme === t.id);
+  });
+}
+
+function buildThemeGrid(){
+  const grid = document.getElementById('theme-grid');
+  if (!grid || grid.dataset.built === '1') return;
+  grid.dataset.built = '1';
+  for (const t of THEMES){
+    const card = document.createElement('button');
+    card.type = 'button';
+    card.className = 'theme-card' + (t.id === currentThemeId ? ' selected' : '');
+    card.dataset.theme = t.id;
+    card.style.setProperty('--c-light', t.light);
+    card.style.setProperty('--c-dark', t.dark);
+    card.innerHTML = `
+      <div class="swatch"><div class="l"></div><div class="d"></div></div>
+      <div class="name">${t.name}</div>
+      <div class="desc">${t.desc}</div>
+      <div class="check">SELECTED</div>
+    `;
+    card.addEventListener('click', () => applyTheme(t.id));
+    grid.appendChild(card);
+  }
+}
+
+function openSettings(){
+  buildThemeGrid();
+  openModal('settings-modal');
+}
+
+// Wire every [data-open-settings] trigger (splash pills, HUD btn, FAB).
+document.querySelectorAll('[data-open-settings]').forEach(el =>
+  el.addEventListener('click', openSettings));
+
+// Restore saved theme on load.
+try {
+  const saved = localStorage.getItem(THEME_KEY);
+  if (saved && THEMES.some(t => t.id === saved)) currentThemeId = saved;
+} catch(_) {}
+applyTheme(currentThemeId);
 
 // Splash + HUD button wiring
 document.getElementById('btn-show-login').onclick           = () => { clearLoginErr(); openModal('login-modal'); };
@@ -1997,6 +2159,7 @@ async function startAR(){
   boardGroup.add(innerBoard);
 
   buildBoard();
+  applyTheme(currentThemeId); // re-color 3D squares to match user's saved theme
   rebuildPieces();
 
   raycaster = new THREE.Raycaster();
