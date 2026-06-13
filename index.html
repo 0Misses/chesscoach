@@ -617,6 +617,32 @@
   .timer-card.low{border-color:var(--danger);}
   @keyframes timerPulse{0%,100%{opacity:1;}50%{opacity:.5;}}
   .timer-card.low.active .t-val{animation:timerPulse .9s ease infinite;}
+
+  /* ---------- Promotion picker ---------- */
+  #promotion-modal{
+    position:fixed;inset:0;z-index:105;
+    background:rgba(10,10,15,.90);backdrop-filter:blur(20px);
+    display:none;flex-direction:column;align-items:center;justify-content:center;
+    gap:24px;
+  }
+  #promotion-modal.show{display:flex;}
+  #promotion-modal h2{font-family:'Playfair Display',serif;font-size:28px;}
+  #promotion-modal p{font-size:13px;opacity:.6;font-family:'Inter',sans-serif;}
+  #promo-choices{display:flex;gap:14px;}
+  .promo-btn{
+    width:76px;height:76px;font-size:44px;
+    background:rgba(255,255,255,.05);
+    border:2px solid rgba(212,165,116,.28);
+    border-radius:14px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;
+    transition:border-color .15s, background .15s, transform .15s;
+    line-height:1;
+  }
+  .promo-btn:hover{
+    border-color:var(--accent);
+    background:rgba(212,165,116,.15);
+    transform:translateY(-3px);
+  }
 </style>
 
 <!-- Fonts -->
@@ -860,6 +886,18 @@
   <div class="row">
     <button class="accept" id="cp-accept">Accept</button>
     <button class="decline" id="cp-decline">Decline</button>
+  </div>
+</div>
+
+<!-- Promotion picker -->
+<div id="promotion-modal">
+  <h2>Promote Pawn</h2>
+  <p>Choose a piece</p>
+  <div id="promo-choices">
+    <button class="promo-btn" data-piece="q">♕</button>
+    <button class="promo-btn" data-piece="r">♖</button>
+    <button class="promo-btn" data-piece="b">♗</button>
+    <button class="promo-btn" data-piece="n">♘</button>
   </div>
 </div>
 
@@ -2106,9 +2144,49 @@ async function recordMatchIfNeeded(){
 }
 
 // =======================================================
+// SOUND EFFECTS — Web Audio API, no files needed
+// =======================================================
+let _sfxCtx = null;
+function sfxCtx(){
+  if (!_sfxCtx) _sfxCtx = new (window.AudioContext || window.webkitAudioContext)();
+  if (_sfxCtx.state === 'suspended') _sfxCtx.resume();
+  return _sfxCtx;
+}
+function sfxTone(freq, type='sine', dur=0.08, vol=0.25, delay=0){
+  try {
+    const ctx = sfxCtx();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.type = type;
+    o.frequency.setValueAtTime(freq, ctx.currentTime + delay);
+    g.gain.setValueAtTime(vol, ctx.currentTime + delay);
+    g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + delay + dur);
+    o.start(ctx.currentTime + delay);
+    o.stop(ctx.currentTime + delay + dur);
+  } catch(_){}
+}
+function sfxMove(){
+  sfxTone(700, 'sine', 0.055, 0.22);
+  sfxTone(420, 'sine', 0.04,  0.10, 0.03);
+}
+function sfxCapture(){
+  sfxTone(380, 'sine',     0.06, 0.38);
+  sfxTone(200, 'triangle', 0.10, 0.28, 0.04);
+}
+function sfxCheck(){
+  sfxTone(880,  'sine', 0.08, 0.30);
+  sfxTone(1100, 'sine', 0.10, 0.30, 0.12);
+}
+function sfxGameOver(){
+  sfxTone(330, 'sine', 0.30, 0.28);
+  sfxTone(247, 'sine', 0.40, 0.28, 0.38);
+}
+
+// =======================================================
 // CHESS CLOCK — 10-minute rapid for each side
 // =======================================================
-const RAPID_SECONDS = 10 * 60;
+const TIME_INCREMENT = 5;       // seconds added after each move
+const RAPID_SECONDS  = 10 * 60;
 let timerW = RAPID_SECONDS;
 let timerB = RAPID_SECONDS;
 let timerInterval = null;
@@ -2180,6 +2258,79 @@ function resetTimers(){
   timerB = RAPID_SECONDS;
   updateTimerUI();
   if (gameStarted) startTimer();
+}
+
+function applyIncrement(movedColor){
+  if (!gameStarted || gameMode === 'online') return;
+  if (movedColor === 'w') timerW += TIME_INCREMENT;
+  else                    timerB += TIME_INCREMENT;
+  updateTimerUI();
+}
+
+// =======================================================
+// CHECK HIGHLIGHT — flash king square red on AR board
+// =======================================================
+function highlightCheck(){
+  const c = activeChess();
+  if (!c.inCheck()) return;
+  sfxCheck();
+  const inCheckColor = c.turn();
+  const board = c.board();
+  for (let r = 0; r < 8; r++){
+    for (let f = 0; f < 8; f++){
+      const p = board[r][f];
+      if (p && p.type === 'k' && p.color === inCheckColor){
+        const sq  = String.fromCharCode(97 + f) + (8 - r);
+        const hl  = highlightMeshes[sq];
+        if (!hl) return;
+        hl.material.color.set(0xe8504a);
+        hl.material.opacity = 0.80;
+        const t0 = performance.now();
+        const fade = () => {
+          const elapsed = performance.now() - t0;
+          // Hold for 600 ms, then fade over 1400 ms
+          const t = Math.max(0, (elapsed - 600) / 1400);
+          hl.material.opacity = Math.max(0, 0.80 * (1 - t));
+          if (t < 1) requestAnimationFrame(fade);
+        };
+        requestAnimationFrame(fade);
+        return;
+      }
+    }
+  }
+}
+
+// =======================================================
+// PROMOTION PICKER
+// =======================================================
+const WHITE_GLYPHS = { q:'♕', r:'♖', b:'♗', n:'♘' };
+const BLACK_GLYPHS = { q:'♛', r:'♜', b:'♝', n:'♞' };
+
+function isPromotion(from, to){
+  return chess.moves({ square: from, verbose: true })
+    .some(m => m.to === to && m.flags.includes('p'));
+}
+
+function showPromotionModal(from, to){
+  const color  = chess.get(from)?.color || 'w';
+  const glyphs = color === 'w' ? WHITE_GLYPHS : BLACK_GLYPHS;
+  document.querySelectorAll('.promo-btn').forEach(btn => {
+    btn.textContent = glyphs[btn.dataset.piece];
+    btn.onclick = () => {
+      document.getElementById('promotion-modal').classList.remove('show');
+      const move = chess.move({ from, to, promotion: btn.dataset.piece });
+      if (!move) return;
+      sfxMove();
+      applyIncrement(move.color);
+      animateMove(from, to, move);
+      updateStatus();
+      updateReplayBar();
+      highlightCheck();
+      if (!chess.isGameOver()) setTimeout(aiMove, 500);
+      else showGameOver();
+    };
+  });
+  document.getElementById('promotion-modal').classList.add('show');
 }
 
 // =======================================================
@@ -2648,10 +2799,21 @@ function handleSquareTap(sq){
         submitOnlineMove(from, sq);
       } else {
         // Single-player: move local, animate, schedule AI reply.
+        if (isPromotion(from, sq)){
+          selectedSquare = null;
+          legalDestinations = [];
+          clearHighlights();
+          showPromotionModal(from, sq);
+          return;
+        }
+        const captured = chess.get(sq);
         const move = chess.move({ from, to: sq, promotion: 'q' });
+        if (captured) sfxCapture(); else sfxMove();
+        applyIncrement(move.color);
         animateMove(from, sq, move);
         updateStatus();
         updateReplayBar();
+        highlightCheck();
         if (!chess.isGameOver()) setTimeout(aiMove, 500);
         else showGameOver();
       }
@@ -2879,10 +3041,14 @@ function aiMove(){
   setTimeout(() => {
     const m = chooseAIMove();
     if (!m){ busy = false; showGameOver(); return; }
+    const capturedByAI = chess.get(m.to);
     const moveObj = chess.move(m);
+    if (capturedByAI) sfxCapture(); else sfxMove();
+    applyIncrement(moveObj.color);
     animateMove(moveObj.from, moveObj.to, moveObj);
     setTimeout(() => {
       updateStatus();
+      highlightCheck();
       if (chess.isGameOver()) showGameOver();
     }, 400);
   }, 400 + Math.random() * 700);
@@ -2924,6 +3090,7 @@ function showGameOver(){
   else if (chess.isThreefoldRepetition()){ title = 'Draw'; sub = 'Threefold repetition'; }
   else if (chess.isInsufficientMaterial()){ title = 'Draw'; sub = 'Insufficient material'; }
   else if (chess.isDraw()){ title = 'Draw'; sub = '50-move rule'; }
+  sfxGameOver();
   gameoverText.textContent = title;
   gameoverSub.textContent = sub;
   gameoverEl.classList.add('show');
