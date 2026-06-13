@@ -2677,7 +2677,7 @@ function rebuildPieces(){
   // Q left of K for Black (no Y flip); White uses scale.x = -1 with Y=π so Q stays left of K.
   const white = activeColor() === 'w';
   innerBoard.scale.set(white ? -1 : 1, 1, 1);
-  innerBoard.rotation.y = white ? 0 : Math.PI;
+  innerBoard.rotation.y = white ? Math.PI : 0;
   updateReplayBar();
 }
 
