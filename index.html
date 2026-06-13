@@ -573,6 +573,50 @@
   }
   #challenge-popup .accept{background:#5dd39e;color:#0a0a0f;}
   #challenge-popup .decline{background:rgba(232,80,74,.15);color:var(--danger);border:1px solid var(--danger);}
+
+  /* ---------- Anchor button ---------- */
+  #anchor-btn-wrap{
+    position:fixed;bottom:36px;left:50%;transform:translateX(-50%);
+    z-index:60;display:none;
+  }
+  #anchor-btn-wrap.show{display:block;}
+  #anchor-btn{
+    background:var(--accent);color:#1a1620;border:none;
+    padding:16px 36px;border-radius:999px;
+    font-family:'Inter',sans-serif;font-size:16px;font-weight:700;
+    cursor:pointer;letter-spacing:.05em;
+    box-shadow:0 8px 32px rgba(212,165,116,.45);
+    transition:transform .15s ease, box-shadow .15s ease;
+  }
+  #anchor-btn:active{transform:scale(.96);box-shadow:0 4px 16px rgba(212,165,116,.3);}
+
+  /* ---------- Chess timers ---------- */
+  #timers{
+    position:fixed;left:12px;top:0;bottom:0;
+    display:none;flex-direction:column;justify-content:space-between;
+    padding:80px 0 80px;z-index:48;pointer-events:none;
+  }
+  #timers.show{display:flex;}
+  .timer-card{
+    background:rgba(10,10,15,.78);backdrop-filter:blur(14px);
+    border:1px solid rgba(212,165,116,.22);
+    border-radius:14px;padding:10px 16px;min-width:88px;
+    font-family:'Inter',sans-serif;
+  }
+  .timer-card .t-label{
+    font-size:9px;letter-spacing:.18em;text-transform:uppercase;
+    opacity:.55;margin-bottom:4px;
+  }
+  .timer-card .t-val{
+    font-size:26px;font-weight:700;letter-spacing:.02em;
+    color:var(--ink);font-variant-numeric:tabular-nums;
+  }
+  .timer-card.active{border-color:var(--accent);}
+  .timer-card.active .t-val{color:var(--accent);}
+  .timer-card.low .t-val{color:var(--danger);}
+  .timer-card.low{border-color:var(--danger);}
+  @keyframes timerPulse{0%,100%{opacity:1;}50%{opacity:.5;}}
+  .timer-card.low.active .t-val{animation:timerPulse .9s ease infinite;}
 </style>
 
 <!-- Fonts -->
@@ -816,6 +860,23 @@
   <div class="row">
     <button class="accept" id="cp-accept">Accept</button>
     <button class="decline" id="cp-decline">Decline</button>
+  </div>
+</div>
+
+<!-- Anchor board button (shown while board is tracking, before locking) -->
+<div id="anchor-btn-wrap">
+  <button id="anchor-btn">⚓ Anchor Board</button>
+</div>
+
+<!-- Chess timers (shown after anchoring) -->
+<div id="timers">
+  <div class="timer-card" id="timer-top">
+    <div class="t-label" id="timer-top-label">Black</div>
+    <div class="t-val" id="timer-top-val">10:00</div>
+  </div>
+  <div class="timer-card" id="timer-bottom">
+    <div class="t-label" id="timer-bottom-label">White</div>
+    <div class="t-val" id="timer-bottom-val">10:00</div>
   </div>
 </div>
 
@@ -2045,6 +2106,83 @@ async function recordMatchIfNeeded(){
 }
 
 // =======================================================
+// CHESS CLOCK — 10-minute rapid for each side
+// =======================================================
+const RAPID_SECONDS = 10 * 60;
+let timerW = RAPID_SECONDS;
+let timerB = RAPID_SECONDS;
+let timerInterval = null;
+let gameStarted = false; // true only after user clicks Anchor Board
+
+function fmtTime(sec){
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m}:${s.toString().padStart(2,'0')}`;
+}
+
+function updateTimerUI(){
+  const c = activeChess();
+  const turn = c ? c.turn() : null;
+  // Top card = opponent, bottom card = current player
+  const playerIsWhite = activeColor() === 'w';
+  const topColor   = playerIsWhite ? 'b' : 'w';
+  const bottomColor = playerIsWhite ? 'w' : 'b';
+
+  document.getElementById('timer-top-label').textContent    = topColor === 'w' ? 'White' : 'Black';
+  document.getElementById('timer-bottom-label').textContent = bottomColor === 'w' ? 'White' : 'Black';
+  document.getElementById('timer-top-val').textContent    = fmtTime(topColor === 'w' ? timerW : timerB);
+  document.getElementById('timer-bottom-val').textContent = fmtTime(bottomColor === 'w' ? timerW : timerB);
+
+  const topCard    = document.getElementById('timer-top');
+  const bottomCard = document.getElementById('timer-bottom');
+  topCard.classList.toggle('active', turn === topColor);
+  bottomCard.classList.toggle('active', turn === bottomColor);
+  topCard.classList.toggle('low', (topColor === 'w' ? timerW : timerB) <= 30);
+  bottomCard.classList.toggle('low', (bottomColor === 'w' ? timerW : timerB) <= 30);
+}
+
+function tickTimer(){
+  if (!gameStarted) return;
+  const c = activeChess();
+  if (!c || c.isGameOver()){ stopTimer(); return; }
+  if (c.turn() === 'w'){
+    timerW = Math.max(0, timerW - 1);
+    if (timerW === 0){ stopTimer(); onTimeout('w'); return; }
+  } else {
+    timerB = Math.max(0, timerB - 1);
+    if (timerB === 0){ stopTimer(); onTimeout('b'); return; }
+  }
+  updateTimerUI();
+}
+
+function startTimer(){
+  stopTimer();
+  timerInterval = setInterval(tickTimer, 1000);
+}
+function stopTimer(){
+  clearInterval(timerInterval);
+  timerInterval = null;
+}
+
+function onTimeout(color){
+  stopTimer();
+  if (gameMode === 'online') return; // server handles online timeouts
+  const loser = color === playerColor ? 'You' : 'AI';
+  gameoverText.textContent = 'Time Out';
+  gameoverSub.textContent  = loser === 'You' ? 'Your time ran out' : 'AI ran out of time';
+  gameoverEl.classList.add('show');
+  recordMatchIfNeeded();
+}
+
+function resetTimers(){
+  stopTimer();
+  timerW = RAPID_SECONDS;
+  timerB = RAPID_SECONDS;
+  updateTimerUI();
+  if (gameStarted) startTimer();
+}
+
+// =======================================================
 // GAME STATE
 // =======================================================
 let chess = new Chess();
@@ -2112,7 +2250,6 @@ function resetGame(){
   selectedSquare = null;
   legalDestinations = [];
   busy = false;
-  // Reset match-recording state for the new game.
   gameStartTime = Date.now();
   matchRecorded = false;
   const btn = document.getElementById('gameover-btn');
@@ -2121,6 +2258,11 @@ function resetGame(){
   rebuildPieces();
   clearHighlights();
   updateStatus();
+  // Reset chess clock for the new game
+  timerW = RAPID_SECONDS;
+  timerB = RAPID_SECONDS;
+  updateTimerUI();
+  if (gameStarted) startTimer();
   if (gameMode === 'single' && chess.turn() !== playerColor) setTimeout(aiMove, 600);
 }
 
@@ -2175,40 +2317,42 @@ async function startAR(){
   document.addEventListener('click', onTap);
 
   let boardAnchored = false;
-  anchor.onTargetFound = () => {
-    scanPrompt.classList.add('hidden');
-    if (!boardAnchored){
-      boardAnchored = true;
-      // On the next frame MindAR has fully updated the anchor's world matrix.
-      // Detach boardGroup from the anchor and re-parent it directly to the scene
-      // at the same world position — MindAR can then no longer hide or move it.
-      requestAnimationFrame(() => {
-        boardGroup.updateWorldMatrix(true, false);
-        const pos  = new THREE.Vector3();
-        const quat = new THREE.Quaternion();
-        const scl  = new THREE.Vector3();
-        boardGroup.matrixWorld.decompose(pos, quat, scl);
-        anchor.group.remove(boardGroup);
-        scene.add(boardGroup);
-        boardGroup.position.copy(pos);
-        boardGroup.quaternion.copy(quat);
-        boardGroup.scale.copy(scl);
-      });
-    }
-  };
-  anchor.onTargetLost = () => {
-    // Board lives in scene now (not anchor.group) so MindAR cannot hide it.
-    if (!boardAnchored) scanPrompt.classList.remove('hidden');
-  };
+  anchor.onTargetFound = () => { scanPrompt.classList.add('hidden'); };
+  anchor.onTargetLost  = () => { if (!boardAnchored) scanPrompt.classList.remove('hidden'); };
 
   try {
     await mindarThree.start();
-    // Mark the start of the first game now that AR is live.
     gameStartTime = Date.now();
     matchRecorded = false;
     updateStatus();
     renderer.setAnimationLoop(() => renderer.render(scene, camera));
-    if (chess.turn() !== playerColor) setTimeout(aiMove, 800);
+    // Show anchor button — game doesn't start until user locks the board
+    document.getElementById('anchor-btn-wrap').classList.add('show');
+    document.getElementById('anchor-btn').onclick = () => {
+      if (boardAnchored) return;
+      boardAnchored = true;
+      // Freeze board: detach from anchor, re-parent to scene at same world position
+      boardGroup.updateWorldMatrix(true, false);
+      const pos  = new THREE.Vector3();
+      const quat = new THREE.Quaternion();
+      const scl  = new THREE.Vector3();
+      boardGroup.matrixWorld.decompose(pos, quat, scl);
+      anchor.group.remove(boardGroup);
+      scene.add(boardGroup);
+      boardGroup.position.copy(pos);
+      boardGroup.quaternion.copy(quat);
+      boardGroup.scale.copy(scl);
+      // Hide anchor button, show timers, start game
+      document.getElementById('anchor-btn-wrap').classList.remove('show');
+      document.getElementById('timers').classList.add('show');
+      scanPrompt.classList.add('hidden');
+      gameStarted = true;
+      timerW = RAPID_SECONDS;
+      timerB = RAPID_SECONDS;
+      updateTimerUI();
+      startTimer();
+      if (gameMode === 'single' && chess.turn() !== playerColor) setTimeout(aiMove, 600);
+    };
   } catch (err) {
     statusEl.innerHTML = '⚠ Camera blocked. Allow camera access and reload.';
     console.error(err);
@@ -2487,6 +2631,7 @@ function onTap(ev){
 }
 
 function handleSquareTap(sq){
+  if (!gameStarted) return; // wait for anchor button
   const c = activeChess();
   const pc = activeColor();
   const piece = c.get(sq);
@@ -2747,6 +2892,7 @@ function aiMove(){
 // STATUS / GAME OVER
 // =======================================================
 function updateStatus(){
+  if (gameStarted) updateTimerUI();
   const c = activeChess();
   if (isArReplayBrowsing()){
     const n = livePlyCount();
@@ -2768,9 +2914,8 @@ function updateStatus(){
 }
 
 function showGameOver(){
-  // Online terminal states are surfaced by showGameOverOnline (server-driven).
-  // This function only handles the single-player vs computer flow.
   if (gameMode === 'online') return;
+  stopTimer();
   let title = 'Game Over', sub = '';
   if (chess.isCheckmate()){
     const winner = chess.turn() === playerColor ? 'AI wins' : 'You win';
