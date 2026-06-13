@@ -606,6 +606,7 @@
     <div id="splash-guest-nav" style="display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;max-width:280px;">
       <button class="btn-pill primary" id="btn-show-login" style="width:100%;padding:14px 20px;font-size:15px;">Login</button>
       <button class="btn-pill" id="btn-show-register" style="width:100%;padding:14px 20px;font-size:15px;">Register</button>
+      <button class="btn-pill" id="btn-guest-play" style="width:100%;padding:14px 20px;font-size:15px;">Play as Guest</button>
       <div class="row" style="gap:10px;margin-top:2px;">
         <button class="btn-pill" id="btn-show-leaderboard-splash" style="font-size:12px;padding:7px 14px;">Leaderboard</button>
         <button class="btn-pill" data-open-settings style="font-size:12px;padding:7px 14px;">Settings</button>
@@ -879,6 +880,7 @@ const USER_KEY = 'ar_chess_user';
 let currentUser = null;
 /** Signed-in splash: hide AR color pick until user taps "Play bot". */
 let awaitingBotColor = false;
+let awaitingGuestColor = false;
 
 function getToken(){ return localStorage.getItem(TOKEN_KEY); }
 function setAuth(token, user){
@@ -949,14 +951,15 @@ function refreshAuthUI(){
     hudLogout.style.display  = 'inline-block';
   } else {
     awaitingBotColor = false;
-    guestNav.style.display = 'flex';
+    guestNav.style.display  = awaitingGuestColor ? 'none' : 'flex';
     userPanel.style.display = 'none';
-    if (arSetup) arSetup.style.display = 'flex';
-    if (btnBotBack) btnBotBack.style.display = 'none';
+    if (arSetup) arSetup.style.display = awaitingGuestColor ? 'flex' : 'none';
+    if (btnBotBack) btnBotBack.style.display = awaitingGuestColor ? 'inline-block' : 'none';
     who.innerHTML = `Playing as <strong>guest</strong> — stats won't be saved.`;
     if (splashLead){
-      splashLead.textContent =
-        'Augmented-reality chess vs a 1200-rated bot. Sign in for stats, or choose a side below.';
+      splashLead.textContent = awaitingGuestColor
+        ? 'Choose White or Black, then point your camera at the printed marker.'
+        : 'Augmented-reality chess vs a 1200-rated bot. Sign in for stats, or play as a guest below.';
     }
     chip.style.display = 'none';
     hudLogin.style.display   = 'inline-block';
@@ -1068,7 +1071,8 @@ document.getElementById('btn-show-profile').onclick         = () => openProfile(
 document.getElementById('btn-show-leaderboard-splash').onclick = () => openLeaderboard();
 document.getElementById('btn-hub-online').onclick = () => openOnline();
 document.getElementById('btn-hub-bot').onclick    = () => { awaitingBotColor = true; refreshAuthUI(); };
-document.getElementById('btn-bot-back').onclick   = () => { awaitingBotColor = false; refreshAuthUI(); };
+document.getElementById('btn-guest-play').onclick = () => { awaitingGuestColor = true; refreshAuthUI(); };
+document.getElementById('btn-bot-back').onclick   = () => { awaitingBotColor = false; awaitingGuestColor = false; refreshAuthUI(); };
 document.getElementById('hud-online').onclick               = () => openOnline();
 document.getElementById('swap-to-register').onclick = () => { closeModal('login-modal');    clearRegErr();   openModal('register-modal'); };
 document.getElementById('swap-to-login').onclick    = () => { closeModal('register-modal'); clearLoginErr(); openModal('login-modal'); };
@@ -1384,7 +1388,7 @@ async function heartbeat(){
 // ---- Open / close the online modal ----
 function openOnline(){
   if (!currentUser){ openModal('login-modal'); return; }
-  awaitingBotColor = false;
+  awaitingBotColor = false; awaitingGuestColor = false;
   closeModal('coaching-modal');
   refreshAuthUI();
   openModal('online-modal');
@@ -1648,7 +1652,7 @@ async function enterGame(gameId){
     return;
   }
 
-  awaitingBotColor = false;
+  awaitingBotColor = false; awaitingGuestColor = false;
   splash.style.display = 'none';
   enableArContainerInput();
   mpChess.load(game.fen);
@@ -2071,7 +2075,7 @@ let raycaster, pointer;
 document.querySelectorAll('#ar-setup .colorpick button').forEach(btn => {
   btn.addEventListener('click', () => {
     playerColor = btn.dataset.color;
-    awaitingBotColor = false;
+    awaitingBotColor = false; awaitingGuestColor = false;
     splash.style.opacity = '0';
     setTimeout(() => {
       splash.style.display = 'none';
