@@ -2177,15 +2177,28 @@ async function startAR(){
   let boardAnchored = false;
   anchor.onTargetFound = () => {
     scanPrompt.classList.add('hidden');
-    boardAnchored = true;
+    if (!boardAnchored){
+      boardAnchored = true;
+      // On the next frame MindAR has fully updated the anchor's world matrix.
+      // Detach boardGroup from the anchor and re-parent it directly to the scene
+      // at the same world position — MindAR can then no longer hide or move it.
+      requestAnimationFrame(() => {
+        boardGroup.updateWorldMatrix(true, false);
+        const pos  = new THREE.Vector3();
+        const quat = new THREE.Quaternion();
+        const scl  = new THREE.Vector3();
+        boardGroup.matrixWorld.decompose(pos, quat, scl);
+        anchor.group.remove(boardGroup);
+        scene.add(boardGroup);
+        boardGroup.position.copy(pos);
+        boardGroup.quaternion.copy(quat);
+        boardGroup.scale.copy(scl);
+      });
+    }
   };
   anchor.onTargetLost = () => {
-    if (boardAnchored){
-      // Board was already placed — keep it visible at last known position
-      anchor.group.visible = true;
-    } else {
-      scanPrompt.classList.remove('hidden');
-    }
+    // Board lives in scene now (not anchor.group) so MindAR cannot hide it.
+    if (!boardAnchored) scanPrompt.classList.remove('hidden');
   };
 
   try {
