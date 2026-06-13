@@ -602,25 +602,26 @@
   <div id="auth-strip">
     <div class="who" id="auth-who">Playing as <strong>guest</strong> — stats won't be saved.</div>
 
-    <!-- Guest: account + leaderboard -->
-    <div class="row" id="splash-guest-nav">
-      <button class="btn-pill primary" id="btn-show-login">Login</button>
-      <button class="btn-pill" id="btn-show-register">Register</button>
-      <button class="btn-pill" id="btn-show-leaderboard-splash">Leaderboard</button>
-      <button class="btn-pill" data-open-settings>Settings</button>
+    <!-- Guest: login / register -->
+    <div id="splash-guest-nav" style="display:flex;flex-direction:column;align-items:center;gap:12px;width:100%;max-width:280px;">
+      <button class="btn-pill primary" id="btn-show-login" style="width:100%;padding:14px 20px;font-size:15px;">Login</button>
+      <button class="btn-pill" id="btn-show-register" style="width:100%;padding:14px 20px;font-size:15px;">Register</button>
+      <div class="row" style="gap:10px;margin-top:2px;">
+        <button class="btn-pill" id="btn-show-leaderboard-splash" style="font-size:12px;padding:7px 14px;">Leaderboard</button>
+        <button class="btn-pill" data-open-settings style="font-size:12px;padding:7px 14px;">Settings</button>
+      </div>
     </div>
 
-    <!-- Signed in: mode hub + profile -->
+    <!-- Signed in: mode hub -->
     <div id="splash-user-panel">
-      <div class="row">
-        <button class="btn-pill primary" id="btn-hub-online">Play online</button>
-        <button class="btn-pill primary" id="btn-hub-bot">Play bot</button>
-        <button class="btn-pill" id="btn-hub-coaching">Coaching</button>
+      <div class="row" style="flex-direction:column;width:100%;max-width:280px;gap:12px;">
+        <button class="btn-pill primary" id="btn-hub-bot" style="width:100%;padding:14px 20px;font-size:15px;">Play vs AI</button>
+        <button class="btn-pill primary" id="btn-hub-online" style="width:100%;padding:14px 20px;font-size:15px;">Play Online</button>
+        <button class="btn-pill" data-open-settings style="width:100%;padding:14px 20px;font-size:15px;">Settings</button>
       </div>
-      <div class="row">
+      <div class="row" style="gap:12px;margin-top:4px;">
         <button class="btn-pill" id="btn-show-profile">Profile</button>
         <button class="btn-pill" id="btn-logout">Logout</button>
-        <button class="btn-pill" data-open-settings>Settings</button>
       </div>
     </div>
   </div>
@@ -1065,10 +1066,9 @@ document.getElementById('btn-show-register').onclick        = () => { clearRegEr
 document.getElementById('btn-logout').onclick               = () => { clearAuth(); toast('Logged out'); };
 document.getElementById('btn-show-profile').onclick         = () => openProfile();
 document.getElementById('btn-show-leaderboard-splash').onclick = () => openLeaderboard();
-document.getElementById('btn-hub-online').onclick           = () => openOnline();
-document.getElementById('btn-hub-bot').onclick                = () => { awaitingBotColor = true; refreshAuthUI(); };
-document.getElementById('btn-hub-coaching').onclick         = () => openModal('coaching-modal');
-document.getElementById('btn-bot-back').onclick             = () => { awaitingBotColor = false; refreshAuthUI(); };
+document.getElementById('btn-hub-online').onclick = () => openOnline();
+document.getElementById('btn-hub-bot').onclick    = () => { awaitingBotColor = true; refreshAuthUI(); };
+document.getElementById('btn-bot-back').onclick   = () => { awaitingBotColor = false; refreshAuthUI(); };
 document.getElementById('hud-online').onclick               = () => openOnline();
 document.getElementById('swap-to-register').onclick = () => { closeModal('login-modal');    clearRegErr();   openModal('register-modal'); };
 document.getElementById('swap-to-login').onclick    = () => { closeModal('register-modal'); clearLoginErr(); openModal('login-modal'); };
@@ -2170,8 +2170,19 @@ async function startAR(){
   document.addEventListener('touchstart', onTap, { passive: false });
   document.addEventListener('click', onTap);
 
-  anchor.onTargetFound = () => scanPrompt.classList.add('hidden');
-  anchor.onTargetLost  = () => scanPrompt.classList.remove('hidden');
+  let boardAnchored = false;
+  anchor.onTargetFound = () => {
+    scanPrompt.classList.add('hidden');
+    boardAnchored = true;
+  };
+  anchor.onTargetLost = () => {
+    if (boardAnchored){
+      // Board was already placed — keep it visible at last known position
+      anchor.group.visible = true;
+    } else {
+      scanPrompt.classList.remove('hidden');
+    }
+  };
 
   try {
     await mindarThree.start();
@@ -2354,7 +2365,7 @@ function rebuildPieces(){
   // Q left of K for Black (no Y flip); White uses scale.x = -1 with Y=π so Q stays left of K.
   const white = activeColor() === 'w';
   innerBoard.scale.set(white ? -1 : 1, 1, 1);
-  innerBoard.rotation.y = white ? Math.PI : 0;
+  innerBoard.rotation.y = white ? 0 : Math.PI;
   updateReplayBar();
 }
 
